@@ -17,8 +17,12 @@ type JWTConfig struct {
 
 // GetJWTConfig 获取JWT配置
 func GetJWTConfig() *JWTConfig {
+	secret := GetEnv("JWT_SECRET", "")
+	if secret == "" {
+		panic("FATAL: JWT_SECRET environment variable is not set. Set it before starting the server.")
+	}
 	return &JWTConfig{
-		SecretKey:      GetEnv("JWT_SECRET", "your-secret-key-change-in-production"),
+		SecretKey:      secret,
 		ExpirationTime: time.Hour * 24 * 7, // 7天
 		Issuer:         "weoucbookcycle",
 	}
@@ -87,17 +91,14 @@ func (s *JWTService) ValidateToken(tokenString string) (*Claims, error) {
 }
 
 // RefreshToken 刷新token
+// 允许在token仍有效的任何时间进行刷新（比如切换设备时）
 func (s *JWTService) RefreshToken(tokenString string) (string, error) {
 	claims, err := s.ValidateToken(tokenString)
 	if err != nil {
 		return "", err
 	}
 
-	// 检查token是否即将过期（剩余时间小于1天）
-	if time.Until(claims.ExpiresAt.Time) > time.Hour*24 {
-		return "", errors.New("token is still valid, no need to refresh")
-	}
-
+	// Token仍有效，允许刷新
 	return s.GenerateToken(claims.UserID, claims.Username, claims.Email, claims.Roles)
 }
 

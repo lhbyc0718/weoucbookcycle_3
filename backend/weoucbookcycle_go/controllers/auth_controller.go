@@ -32,6 +32,22 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// WeChatLoginRequest 微信登录请求结构
+// 小程序端需提供通过 wx.login 获得的 code
+// 后端使用 code 向微信官方接口换取 openid 并执行登录
+// 如果用户不存在则自动创建
+// 注意：由于小程序本身无跨域限制，前端可直接调用此接口
+// @Summary 微信小程序登录
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body WeChatLoginRequest true "微信登录信息"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/auth/wechat [post]
+type WeChatLoginRequest struct {
+	Code string `json:"code" binding:"required"`
+}
+
 // VerifyEmailRequest 验证邮箱请求结构
 type VerifyEmailRequest struct {
 	Email string `json:"email" binding:"required,email"`
@@ -198,6 +214,44 @@ func (ac *AuthController) Logout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code":    20000,
 		"message": "Logout successful",
+	})
+}
+
+// WeChatLoginRequest 微信登录请求
+// 注意：小程序端应先调用 wx.login 获取 code，然后将 code 发送到此接口
+// 服务端使用 appid/secret 向微信接口换取 openid 并查找/创建用户
+// @Description 使用微信小程序 code 登录，返回 JWT token
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body WeChatLoginRequest true "微信登录信息"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/auth/wechat [post]
+func (ac *AuthController) WeChatLogin(c *gin.Context) {
+	var req WeChatLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		return
+	}
+
+	user, token, err := ac.authService.WeChatLogin(req.Code, c.ClientIP())
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 40100, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    20000,
+		"message": "Login successful",
+		"data": gin.H{
+			"token": token,
+			"user": gin.H{
+				"id":             user.ID,
+				"username":       user.Username,
+				"avatar":         user.Avatar,
+				"email_verified": user.EmailVerified,
+			},
+		},
 	})
 }
 

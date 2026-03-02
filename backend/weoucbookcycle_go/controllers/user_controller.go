@@ -180,3 +180,117 @@ func (uc *UserController) GetOnlineUsers(c *gin.Context) {
 		},
 	})
 }
+
+// GetMyProfile 获取当前登录用户资料
+func (uc *UserController) GetMyProfile(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var user models.User
+	if err := config.DB.Preload("Books").Preload("Listings").First(&user, "id = ?", userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
+}
+
+// ToggleWishlist 切换心愿单中的书籍
+func (uc *UserController) ToggleWishlist(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var body struct {
+		BookID string `json:"bookId" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var user models.User
+	if err := config.DB.First(&user, "id = ?", userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	var list []string
+	if len(user.Wishlist) > 0 {
+		if err := json.Unmarshal(user.Wishlist, &list); err != nil {
+			list = []string{}
+		}
+	}
+
+	found := false
+	for i, id := range list {
+		if id == body.BookID {
+			// remove
+			list = append(list[:i], list[i+1:]...)
+			found = true
+			break
+		}
+	}
+	if !found {
+		list = append(list, body.BookID)
+	}
+
+	b, _ := json.Marshal(list)
+	user.Wishlist = b
+
+	if err := config.DB.Model(&user).Update("wishlist", user.Wishlist).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update wishlist"})
+		return
+	}
+
+	c.JSON(http.StatusOK, list)
+}
+
+// EvaluateUser 评价卖家并调整信任分
+func (uc *UserController) EvaluateUser(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var body struct {
+		SellerID string `json:"seller_id" binding:"required"`
+		IsGood   bool   `json:"is_good"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var seller models.User
+	if err := config.DB.First(&seller, "id = ?", body.SellerID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Seller not found"})
+		return
+	}
+
+	// 简单规则：好评 +1，差评 -5，范围 0-100
+	if body.IsGood {
+		seller.TrustScore += 1
+	} else {
+		seller.TrustScore -= 5
+	}
+	if seller.TrustScore < 0 {
+		seller.TrustScore = 0
+	}
+	if seller.TrustScore > 100 {
+		seller.TrustScore = 100
+	}
+
+	if err := config.DB.Model(&seller).Update("trust_score", seller.TrustScore).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update trust score"})
+		return
+	}
+
+	c.JSON(http.StatusOK, seller)
+}

@@ -10,9 +10,8 @@ import (
 
 // SetupRoutes 设置路由
 func SetupRoutes(r *gin.Engine) {
-	// 应用全局中间件
-	r.Use(middleware.CORS())
-	r.Use(middleware.Logger())
+	// Note: CORS, Logger, and Recovery middleware are already applied in config/server.go:SetupRouter()
+	// Do NOT apply them again here to avoid duplication and conflicts
 
 	// API 路由组（弃用版本号或与前端环境变量保持一致）
 	// 之前使用 /api/v1，如果前端直接请求 /api，可以在这里修改。
@@ -23,6 +22,8 @@ func SetupRoutes(r *gin.Engine) {
 		{
 			auth.POST("/register", controllers.NewAuthController().Register)
 			auth.POST("/login", controllers.NewAuthController().Login)
+			// 微信小程序登录，无需邮箱密码
+			auth.POST("/wechat", controllers.NewAuthController().WeChatLogin)
 			auth.POST("/refresh", controllers.NewAuthController().RefreshToken)
 			auth.POST("/logout", controllers.NewAuthController().Logout)
 			auth.POST("/verify-email", controllers.NewAuthController().VerifyEmail)
@@ -34,10 +35,12 @@ func SetupRoutes(r *gin.Engine) {
 		// ====== 用户路由 ======
 		users := api.Group("/users")
 		{
+			users.GET("/me", middleware.AuthMiddleware(), controllers.NewUserController().GetMyProfile)
 			users.GET("/active", controllers.NewUserController().GetActiveUsers)
 			users.GET("/online", controllers.NewUserController().GetOnlineUsers)
 			users.GET("/:id", controllers.NewUserController().GetUserProfile)
 			users.PUT("/profile", middleware.AuthMiddleware(), controllers.NewUserController().UpdateUserProfile)
+			users.POST("/wishlist/toggle", middleware.AuthMiddleware(), controllers.NewUserController().ToggleWishlist)
 		}
 
 		// ====== 书籍路由 ======
@@ -88,6 +91,9 @@ func SetupRoutes(r *gin.Engine) {
 			search.GET("/hot", controllers.NewSearchController().GetHotSearchKeywords)
 			search.GET("/suggestions", controllers.NewSearchController().GetSuggestions)
 		}
+
+		// 评价卖家
+		api.POST("/evaluate", middleware.AuthMiddleware(), controllers.NewUserController().EvaluateUser)
 	}
 
 	// ====== WebSocket路由 ======

@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/mail"
 	"net/smtp"
 	"sync"
@@ -182,7 +184,9 @@ func (as *AuthService) Register(req *RegisterRequest, clientIP string) (*models.
 
 	// 8. 存储验证码到Redis（30分钟有效）
 	verificationKey := fmt.Sprintf("verify:email:%s", req.Email)
-	config.RedisClient.Set(redisCtx, verificationKey, verificationCode, 30*time.Minute)
+	if config.RedisClient != nil {
+		config.RedisClient.Set(redisCtx, verificationKey, verificationCode, 30*time.Minute)
+	}
 
 	// 9. 增加注册计数
 	if config.RedisClient != nil {
@@ -349,6 +353,68 @@ func (as *AuthService) Login(req *LoginRequest, clientIP, userAgent string) (*mo
 			config.RedisClient.Expire(redisCtx, "users:active", 7*24*time.Hour)
 		}
 	}()
+
+	return &user, token, nil
+}
+
+// WeChatLogin 使用微信小程序 code 进行登录/注册
+// code 由前端 wx.login 获取并发送到后台
+// 服务端调用微信接口换取 openid, session_key
+// 如果用户已存在则返回该用户，否则自动创建
+func (as *AuthService) WeChatLogin(code, clientIP string) (*models.User, string, error) {
+	if code == "" {
+		return nil, "", errors.New("code为空")
+	}
+
+	appid := config.GetEnv("WECHAT_APPID", "")
+	secret := config.GetEnv("WECHAT_SECRET", "")
+	if appid == "" || secret == "" {
+		return nil, "", errors.New("微信配置未设置")
+	}
+
+	url := fmt.Sprintf("https://api.weixin.qq.com/sns/jscode2session?appid=%s&secret=%s&js_code=%s&grant_type=authorization_code", appid, secret, code)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, "", fmt.Errorf("请求微信接口失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var data struct {
+		OpenID     string `json:"openid"`
+		SessionKey string `json:"session_key"`
+		UnionID    string `json:"unionid"`
+		ErrCode    int    `json:"errcode"`
+		ErrMsg     string `json:"errmsg"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, "", fmt.Errorf("解析微信返回失败: %w", err)
+	}
+	if data.ErrCode != 0 {
+		return nil, "", fmt.Errorf("微信登录失败: %s", data.ErrMsg)
+	}
+
+	if data.OpenID == "" {
+		return nil, "", errors.New("微信未返回openid")
+	}
+
+	// 查找或创建用户
+	var user models.User
+	if err := config.DB.Where("we_chat_open_id = ?", data.OpenID).First(&user).Error; err != nil {
+		// 用户不存在则创建
+		user = models.User{
+			Username:     "wx_" + data.OpenID[:8],
+			WeChatOpenID: data.OpenID,
+			Status:       1,
+		}
+		if err := config.DB.Create(&user).Error; err != nil {
+			return nil, "", fmt.Errorf("创建微信用户失败: %w", err)
+		}
+	}
+
+	token, err := as.jwtService.GenerateToken(user.ID, user.Username, user.Email, []string{"user"})
+	if err != nil {
+		return nil, "", fmt.Errorf("生成token失败: %w", err)
+	}
 
 	return &user, token, nil
 }

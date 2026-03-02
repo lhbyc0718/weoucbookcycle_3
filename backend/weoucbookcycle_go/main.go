@@ -6,6 +6,7 @@ import (
 
 	"weoucbookcycle_go/config"
 	"weoucbookcycle_go/middleware"
+	"weoucbookcycle_go/models"
 	"weoucbookcycle_go/routes"
 	"weoucbookcycle_go/websocket"
 
@@ -38,6 +39,12 @@ func main() {
 	}
 	defer config.CloseDatabase()
 
+	// 自动迁移：在开发环境下确保新增字段被创建（仅在开发使用）
+	// 避免生产环境意外修改，请在真实部署时关闭或改用显式迁移工具
+	if err := config.DB.AutoMigrate(&models.User{}, &models.Book{}, &models.Listing{}, &models.Message{}, &models.Chat{}); err != nil {
+		log.Printf("Warning: auto migrate failed: %v", err)
+	}
+
 	// 初始化Redis
 	if err := config.InitializeRedis(); err != nil {
 		log.Fatalf("Failed to initialize Redis: %v", err)
@@ -56,10 +63,11 @@ func main() {
 	// 注册自定义路由
 	routes.SetupRoutes(r)
 
-	if err := config.StartServer(); err != nil {
+	// 启动服务器
+	log.Println("🚀 Server starting on port 8080")
+	log.Println("📚 API documentation: http://localhost:8080/health")
+	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
-
-	r.Run(":8080")
 
 }

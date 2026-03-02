@@ -1,3 +1,0 @@
-// This file is a placeholder for the notification sound.
-// In a real deployment, you would replace this with an actual .mp3 file.
-// For now, we'll use a base64 string in the code to play the sound.

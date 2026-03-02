@@ -96,15 +96,19 @@ func SetupRouter() *gin.Engine {
 	r.Use(gin.Recovery()) // 恢复panic
 	r.Use(gin.Logger())   // 日志记录
 
-	// CORS配置
-	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:5173", "http://localhost:4173"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Requested-With"},
-		ExposeHeaders:    []string{"Content-Length", "Content-Type"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}))
+	// CORS配置（可以通过环境变量 DISABLE_CORS=true 关闭）
+	if GetEnv("DISABLE_CORS", "false") != "true" {
+		r.Use(cors.New(cors.Config{
+			AllowOrigins:     []string{"http://localhost:3000", "http://localhost:5173", "http://localhost:4173"},
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Requested-With"},
+			ExposeHeaders:    []string{"Content-Length", "Content-Type"},
+			AllowCredentials: true,
+			MaxAge:           12 * time.Hour,
+		}))
+	} else {
+		log.Println("⚠️  CORS middleware disabled (DISABLE_CORS=true)")
+	}
 
 	// 健康检查端点（包括数据库和Redis状态）
 	r.GET("/health", func(c *gin.Context) {
@@ -155,44 +159,10 @@ func SetupRouter() *gin.Engine {
 	return r
 }
 
-// StartServer 启动服务器
+// StartServer is deprecated, use main.go for resource initialization instead
+// Kept for backward compatibility only
 func StartServer() error {
-	serverConfig := GetServerConfig()
-
-	// 初始化数据库
-	if err := InitDatabase(); err != nil {
-		return fmt.Errorf("failed to initialize database: %w", err)
-	}
-	defer CloseDatabase()
-
-	// 初始化Redis（如果启用）
-	if serverConfig.RedisEnabled {
-		if err := InitializeRedis(); err != nil {
-			log.Printf("⚠️  Warning: Redis initialization failed: %v", err)
-			log.Println("Continuing without Redis caching...")
-			RedisClient = nil
-		}
-	} else {
-		log.Println("ℹ️  Redis is disabled in configuration")
-	}
-	defer CloseRedis()
-
-	// 设置路由
-	r := SetupRouter()
-
-	// 获取服务器配置
-	config := GetServerConfig()
-
-	// 启动服务器
-	addr := fmt.Sprintf(":%s", config.Port)
-	log.Printf("🚀 Server starting on port %s in %s mode", config.Port, config.Mode)
-	log.Printf("📚 API documentation: http://localhost%s/api/v1", addr)
-	log.Printf("❤️  Health check: http://localhost%s/health", addr)
-
-	if err := r.Run(addr); err != nil {
-		return fmt.Errorf("failed to start server: %w", err)
-	}
-
+	log.Println("⚠️  Warning: StartServer() is deprecated. Resources should be initialized in main.go.")
 	return nil
 }
 
