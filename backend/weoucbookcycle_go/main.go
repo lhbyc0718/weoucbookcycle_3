@@ -25,8 +25,10 @@ func main() {
 	env := os.Getenv("GIN_MODE")
 	if env == "" {
 		os.Setenv("GIN_MODE", "debug")
+	} // 检查是否意外启用了云开发模式
+	if config.GetUseCloud() {
+		log.Println("⚠️  USE_CLOUD=true 已启用，但当前后端只支持自建MySQL，请在 .env 中将其设为 false。")
 	}
-
 	// 初始化日志系统
 	if err := middleware.InitLogger(env); err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
@@ -39,10 +41,15 @@ func main() {
 	}
 	defer config.CloseDatabase()
 
-	// 自动迁移：在开发环境下确保新增字段被创建（仅在开发使用）
-	// 避免生产环境意外修改，请在真实部署时关闭或改用显式迁移工具
-	if err := config.DB.AutoMigrate(&models.User{}, &models.Book{}, &models.Listing{}, &models.Message{}, &models.Chat{}); err != nil {
-		log.Printf("Warning: auto migrate failed: %v", err)
+	// 自动迁移：仅在非生产环境或显式开启时运行（避免生产环境意外修改）
+	enableAuto := os.Getenv("ENABLE_AUTO_MIGRATE")
+	ginMode := os.Getenv("GIN_MODE")
+	if enableAuto == "true" || ginMode != "release" {
+		if err := config.DB.AutoMigrate(&models.User{}, &models.Book{}, &models.Listing{}, &models.Message{}, &models.Chat{}); err != nil {
+			log.Printf("Warning: auto migrate failed: %v", err)
+		}
+	} else {
+		log.Println("AutoMigrate skipped (production mode)")
 	}
 
 	// 初始化Redis
@@ -64,10 +71,25 @@ func main() {
 	routes.SetupRoutes(r)
 
 	// 启动服务器
-	log.Println("🚀 Server starting on port 8080")
-	log.Println("📚 API documentation: http://localhost:8080/health")
-	if err := r.Run(":8080"); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	port := config.GetServerConfig().Port
+	addr := ":" + port
+
+	// If TLS cert/key provided, start HTTPS server
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+
+	log.Printf("🚀 Server starting on port %s (mode=%s)", port, ginMode)
+	log.Printf("📚 API health: http://localhost:%s/health", port)
+
+	if certFile != "" && keyFile != "" {
+		log.Println("Starting HTTPS server with provided TLS certificate")
+		if err := r.RunTLS(addr, certFile, keyFile); err != nil {
+			log.Fatalf("Failed to start HTTPS server: %v", err)
+		}
+	} else {
+		if err := r.Run(addr); err != nil {
+			log.Fatalf("Failed to start server: %v", err)
+		}
 	}
 
 }

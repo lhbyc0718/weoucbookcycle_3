@@ -32,3 +32,17 @@ func GetEnvBool(key string, defaultValue bool) bool {
 	}
 	return defaultValue
 }
+
+// GetUseCloud 检查是否使用微信云开发
+// 默认 false，自建后端使用 MySQL
+func GetUseCloud() bool {
+	return GetEnvBool("USE_CLOUD", false)
+}
+
+// GetAPIBase 返回 API 基地址，可供前端设置、或者在后端生成链接时使用
+func GetAPIBase() string {
+	if v := os.Getenv("API_BASE"); v != "" {
+		return v
+	}
+	return "http://localhost:8080"
+}

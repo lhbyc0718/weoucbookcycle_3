@@ -110,6 +110,10 @@ func SetupRouter() *gin.Engine {
 		log.Println("⚠️  CORS middleware disabled (DISABLE_CORS=true)")
 	}
 
+	// 打印当前环境（API 环境）以便排查
+	apiEnv := GetEnv("API_ENV", "development")
+	log.Printf("API_ENV=%s, GIN_MODE=%s", apiEnv, serverConfig.Mode)
+
 	// 健康检查端点（包括数据库和Redis状态）
 	r.GET("/health", func(c *gin.Context) {
 		health := gin.H{
@@ -159,10 +163,10 @@ func SetupRouter() *gin.Engine {
 	return r
 }
 
-// StartServer is deprecated, use main.go for resource initialization instead
-// Kept for backward compatibility only
+// StartServer 已弃用，请在 main.go 中进行资源初始化
+// 保留该函数以兼容旧版本调用
 func StartServer() error {
-	log.Println("⚠️  Warning: StartServer() is deprecated. Resources should be initialized in main.go.")
+	log.Println("⚠️  警告: StartServer() 已弃用，请在 main.go 初始化资源。")
 	return nil
 }
 

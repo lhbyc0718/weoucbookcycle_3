@@ -35,19 +35,19 @@ Page({
 
   loadBooks: function() {
     const that = this;
-    if (wx.cloud && wx.cloud.database) {
+    // 读取配置判断是否使用云功能
+    const useCloud = (app.globalData && app.globalData.useCloud) || false;
+    if (useCloud && wx.cloud && wx.cloud.database) {
       const db = wx.cloud.database();
       db.collection('books').get().then(r => {
         let books = r.data || [];
-        // merge locally published books that may not yet be synced
         const local = wx.getStorageSync('myBooks') || [];
         if (local.length) {
           books = local.concat(books);
         }
         that.setData({ books: books, filteredBooks: books });
       }).catch(() => {
-        // fallback to earlier behavior
-        let books = that.getMockBooks();
+        const books = that.getMockBooks();
         const local = wx.getStorageSync('myBooks') || [];
         if (local.length) {
           books = local.concat(books);
@@ -55,7 +55,7 @@ Page({
         that.setData({ books: books, filteredBooks: books });
       });
     } else {
-      // non-cloud fallback
+      // 自建后端逻辑
       wx.request({
         url: app.globalData.apiBase + '/api/init',
         success: function(res) {

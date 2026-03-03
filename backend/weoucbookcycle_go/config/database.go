@@ -31,9 +31,9 @@ func GetDatabaseConfig() *DatabaseConfig {
 	dbName := GetEnv("DB_NAME", "weoucbookcycle")
 	charset := GetEnv("DB_CHARSET", "utf8mb4")
 
-	// 调试输出：显示实际读取的值
-	log.Printf("📋 Database Config Loaded:\n  Host: %s\n  Port: %s\n  User: %s\n  DBName: %s\n  Password: %s\n  Charset: %s\n",
-		host, port, user, dbName, maskPassword(password), charset)
+	// 调试输出：显示实际读取的值（不输出明文密码）
+	log.Printf("📋 Database Config Loaded: Host=%s Port=%s User=%s DBName=%s Charset=%s",
+		host, port, user, dbName, charset)
 
 	return &DatabaseConfig{
 		Host:     host,

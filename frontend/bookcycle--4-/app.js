@@ -65,13 +65,10 @@ App({
                 // Step 4: 推新上下文
                 that.globalData.userInfo = userInfo;
                 that.globalData.authToken = response.data.token;
-
-                // 可以触发一个事件由应用程序等待
-                wx.onAppShow && wx.onAppShow();
               } else {
                 wx.showModal({
                   title: '登录失败',
-                  content: response.message || '程序事為會這操捨r',
+                  content: response.message || '服务器繁忙，请稍后重试',
                   showCancel: false
                 });
               }
@@ -98,7 +95,23 @@ App({
   globalData: {
     userInfo: null,
     authToken: null,
-    // API基础地址（例子：local development: http://localhost:8080, cloud: https://api.example.com）
-    apiBase: process.env.NODE_ENV === 'development' ? 'http://localhost:8080' : 'https://api.example.com'
+    useCloud: (function() {
+      try {
+        const appConfig = require('./app.json');
+        return appConfig && appConfig.config && appConfig.config.useCloud;
+      } catch (e) {
+        return false;
+      }
+    })(),
+    // 使用小程序内置配置（app.json -> config.apiBase）优先，其次使用本地默认
+    apiBase: (function() {
+      try {
+        const appConfig = require('./app.json');
+        if (appConfig && appConfig.config && appConfig.config.apiBase) return appConfig.config.apiBase;
+      } catch (e) {
+        // ignore
+      }
+      return 'https://api.example.com';
+    })()
   }
 });
