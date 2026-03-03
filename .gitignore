@@ -54,3 +54,6 @@ coverage/
 *.log
 .env*
 
+.git
+
+.github/
