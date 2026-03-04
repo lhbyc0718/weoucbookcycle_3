@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -96,10 +97,20 @@ func SetupRouter() *gin.Engine {
 	r.Use(gin.Recovery()) // 恢复panic
 	r.Use(gin.Logger())   // 日志记录
 
-	// CORS配置（可以通过环境变量 DISABLE_CORS=true 关闭）
+	// CORS配置（可以通过环境变量 DISABLE_CORS=true 关闭，ALLOW_ORIGINS 指定允许的域列表）
 	if GetEnv("DISABLE_CORS", "false") != "true" {
+		// origins 用逗号分隔列表，空值或"*"表示允许所有
+		allowList := GetEnv("ALLOW_ORIGINS", "http://localhost:3000,http://localhost:5173,http://localhost:4173")
+		origins := []string{}
+		if allowList == "*" || allowList == "" {
+			origins = []string{"*"}
+		} else {
+			for _, o := range strings.Split(allowList, ",") {
+				origins = append(origins, strings.TrimSpace(o))
+			}
+		}
 		r.Use(cors.New(cors.Config{
-			AllowOrigins:     []string{"http://localhost:3000", "http://localhost:5173", "http://localhost:4173"},
+			AllowOrigins:     origins,
 			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
 			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Requested-With"},
 			ExposeHeaders:    []string{"Content-Length", "Content-Type"},
@@ -113,6 +124,13 @@ func SetupRouter() *gin.Engine {
 	// 打印当前环境（API 环境）以便排查
 	apiEnv := GetEnv("API_ENV", "development")
 	log.Printf("API_ENV=%s, GIN_MODE=%s", apiEnv, serverConfig.Mode)
+
+	// 可选：如果后端也需要托管 Web 前端（默认false），可以通过环境变量开启
+	if GetEnv("SERVE_WEB", "false") == "true" {
+		webPath := GetEnv("WEB_DIST_PATH", "../frontend/web/dist")
+		log.Printf("Serving static web files from %s", webPath)
+		r.StaticFS("/", gin.Dir(webPath, false))
+	}
 
 	// 健康检查端点（包括数据库和Redis状态）
 	r.GET("/health", func(c *gin.Context) {

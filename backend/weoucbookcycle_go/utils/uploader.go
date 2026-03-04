@@ -14,6 +14,7 @@ import (
 	"weoucbookcycle_go/config"
 
 	"github.com/gin-gonic/gin"
+	"github.com/minio/minio-go/v7"
 )
 
 // UploadConfig 上传配置
@@ -62,6 +63,32 @@ func NewFileUploader(config ...*UploadConfig) *FileUploader {
 	return &FileUploader{config: cfg}
 }
 
+// uploadToStorage sends data to configured object storage and returns public URL
+func (fu *FileUploader) uploadToStorage(ctx context.Context, reader io.Reader, size int64, fileName, contentType string) (string, error) {
+	cfg := config.GetStorageConfig()
+	client, ok := config.StorageClient.(*minio.Client)
+	if !ok || client == nil {
+		return "", fmt.Errorf("storage client not available")
+	}
+	// organize by date folder
+	dir := time.Now().Format("2006/01/02")
+	objectName := fmt.Sprintf("%s/%s", dir, fileName)
+	opts := minio.PutObjectOptions{ContentType: contentType}
+	_, err := client.PutObject(ctx, cfg.Bucket, objectName, reader, size, opts)
+	if err != nil {
+		return "", err
+	}
+	// build URL
+	if cfg.PublicURL != "" {
+		return fmt.Sprintf("%s/%s", strings.TrimRight(cfg.PublicURL, "/"), objectName), nil
+	}
+	protocol := "https"
+	if !cfg.UseSSL {
+		protocol = "http"
+	}
+	return fmt.Sprintf("%s://%s/%s/%s", protocol, cfg.Endpoint, cfg.Bucket, objectName), nil
+}
+
 // UploadFile 上传单个文件
 func (fu *FileUploader) UploadFile(c *gin.Context, fieldName string) (*UploadResult, error) {
 	file, err := c.FormFile(fieldName)
@@ -89,8 +116,24 @@ func (fu *FileUploader) UploadFile(c *gin.Context, fieldName string) (*UploadRes
 
 	// 生成文件名
 	fileName := generateFileName(file.Filename)
-	filePath := filepath.Join(fu.config.UploadPath, fileName)
 
+	result := &UploadResult{
+		FileSize: file.Size,
+		FileName: fileName,
+	}
+
+	// 如果已配置对象存储则直接上传
+	if config.StorageClient != nil {
+		url, err := fu.uploadToStorage(c.Request.Context(), src, file.Size, fileName, file.Header.Get("Content-Type"))
+		if err != nil {
+			return nil, fmt.Errorf("storage upload failed: %w", err)
+		}
+		result.OriginalURL = url
+		return result, nil
+	}
+
+	// fallback to local disk
+	filePath := filepath.Join(fu.config.UploadPath, fileName)
 	// 创建目录
 	if err := os.MkdirAll(fu.config.UploadPath, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create upload directory: %w", err)
@@ -103,16 +146,15 @@ func (fu *FileUploader) UploadFile(c *gin.Context, fieldName string) (*UploadRes
 	}
 	defer dst.Close()
 
-	if _, err := io.Copy(dst, src); err != nil {
+	// reset reader to beginning by reopening
+	src2, _ := file.Open()
+	defer src2.Close()
+	if _, err := io.Copy(dst, src2); err != nil {
 		return nil, fmt.Errorf("failed to save file: %w", err)
 	}
 
 	// 构建结果
-	result := &UploadResult{
-		OriginalURL: fmt.Sprintf("/uploads/%s", fileName),
-		FileSize:    file.Size,
-		FileName:    fileName,
-	}
+	result.OriginalURL = fmt.Sprintf("/uploads/%s", fileName)
 
 	// 异步缓存文件信息到Redis
 	if fu.config.UseRedisCache && config.RedisClient != nil {
@@ -177,24 +219,34 @@ func (fu *FileUploader) UploadFiles(c *gin.Context, fieldName string) ([]*Upload
 				return
 			}
 
-			// 保存文件
-			dst, err := os.Create(filePath)
-			if err != nil {
-				errorChan <- fmt.Errorf("failed to create file %s: %w", f.Filename, err)
-				return
-			}
-			defer dst.Close()
-
-			if _, err := io.Copy(dst, src); err != nil {
-				errorChan <- fmt.Errorf("failed to save file %s: %w", f.Filename, err)
-				return
-			}
-
-			// 构建结果
+			// 如果配置了对象存储则先上传
 			result := &UploadResult{
-				OriginalURL: fmt.Sprintf("/uploads/%s", fileName),
-				FileSize:    f.Size,
-				FileName:    fileName,
+				FileSize: f.Size,
+				FileName: fileName,
+			}
+			if config.StorageClient != nil {
+				url, err := fu.uploadToStorage(context.Background(), src, f.Size, fileName, f.Header.Get("Content-Type"))
+				if err != nil {
+					errorChan <- fmt.Errorf("storage upload failed for %s: %w", f.Filename, err)
+					return
+				}
+				result.OriginalURL = url
+			} else {
+				// 保存文件到本地
+				dst, err := os.Create(filePath)
+				if err != nil {
+					errorChan <- fmt.Errorf("failed to create file %s: %w", f.Filename, err)
+					return
+				}
+				defer dst.Close()
+
+				src2, _ := f.Open()
+				defer src2.Close()
+				if _, err := io.Copy(dst, src2); err != nil {
+					errorChan <- fmt.Errorf("failed to save file %s: %w", f.Filename, err)
+					return
+				}
+				result.OriginalURL = fmt.Sprintf("/uploads/%s", fileName)
 			}
 
 			// 添加到结果列表（加锁）

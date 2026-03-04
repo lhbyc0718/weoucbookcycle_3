@@ -1,0 +1,145 @@
+<view class="container">
+  <!-- Header -->
+  <view class="header">
+    <view class="close-btn" bindtap="onBack">
+      <text>✕</text>
+    </view>
+    <text class="header-title">Post Book</text>
+    <view class="publish-btn" bindtap="handlePublish">
+      <text>Publish</text>
+    </view>
+  </view>
+
+  <!-- Content -->
+  <scroll-view class="content" scroll-y="true">
+    <!-- Check if user is restricted -->
+    <block wx:if="{{isRestricted}}">
+      <view class="restricted">
+        <view class="warning-icon">⚠️</view>
+        <text class="restricted-title">Account Restricted</text>
+        <text class="restricted-desc">Your Trust Score has dropped to {{trustScore}}. You are currently banned from posting new listings.</text>
+        <button class="back-btn" bindtap="onBack">Go Back</button>
+      </view>
+    </block>
+
+    <block wx:else>
+      <!-- Visuals Section -->
+      <view class="section">
+        <view class="section-header">
+          <text class="section-icon">✨</text>
+          <text class="section-title">Visuals</text>
+        </view>
+        <text class="section-desc">Showcase your book's character with high-quality photos.</text>
+        
+        <!-- Cover Image -->
+        <view class="cover-image" bindtap="chooseImage">
+          <image class="cover-img" src="{{images && images[0] ? images[0] : 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=800&h=600&fit=crop'}}" mode="aspectFill"></image>
+          <view class="cover-overlay">
+            <view class="cover-btn">
+              <text>{{images && images.length > 0 ? 'Change Cover' : 'Add Cover Image'}}</text>
+              <view class="camera-icon">📷</view>
+            </view>
+          </view>
+        </view>
+
+        <!-- Additional Images -->
+        <view class="image-grid">
+          <view class="add-image-btn" bindtap="chooseImage">
+            <text class="plus-icon">+</text>
+            <text class="add-text">Add Photo</text>
+          </view>
+          <block wx:if="{{images && images.length > 0}}" wx:for="{{images}}" wx:key="*this">
+            <view class="image-preview">
+              <image class="preview-img" src="{{item}}" mode="aspectFill"></image>
+              <view class="remove-btn" bindtap="removeImage" data-index="{{index}}">✕</view>
+            </view>
+          </block>
+        </view>
+      </view>
+
+      <!-- Details Section -->
+      <view class="section">
+        <text class="section-title">Details</text>
+        
+        <!-- Book Title -->
+        <view class="input-group">
+          <text class="input-label">Book Title</text>
+          <input 
+            class="input-field" 
+            placeholder="Enter book title" 
+            value="{{title}}"
+            bindinput="onTitleInput"
+          />
+        </view>
+
+        <!-- Author -->
+        <view class="input-group">
+          <text class="input-label">Author</text>
+          <input 
+            class="input-field" 
+            placeholder="Enter author name" 
+            value="{{author}}"
+            bindinput="onAuthorInput"
+          />
+        </view>
+
+        <!-- Price Slider -->
+        <view class="price-box">
+          <view class="price-header">
+            <text class="price-label">Selling Price</text>
+            <view class="price-value">
+              <text class="currency">¥</text>
+              <text class="amount">{{price}}</text>
+            </view>
+          </view>
+          <slider 
+            min="0" 
+            max="200" 
+            value="{{price || 45}}" 
+            bindchange="onPriceChange"
+            activeColor="#6366f1"
+            backgroundColor="#1e293b"
+            block-color="#fff"
+            block-size="24"
+          />
+          <view class="price-range">
+            <text>Free</text>
+            <text>Premium</text>
+          </view>
+        </view>
+
+        <!-- Categories -->
+        <view class="input-group">
+          <text class="input-label">Categories & Tags</text>
+          <view class="tags-list">
+            <block wx:if="{{categories && categories.length > 0}}" wx:for="{{categories}}" wx:key="*this">
+              <view 
+                class="tag-item {{selectedTags && selectedTags.indexOf(item) > -1 ? 'selected' : ''}}" 
+                bindtap="toggleTag" 
+                data-tag="{{item}}"
+                style="{{selectedTags && selectedTags.indexOf(item) > -1 ? 'background-color:#ec4899;border-color:#db2777;color:#fff;transform:scale(1.08);font-size:26rpx;padding:18rpx 36rpx;box-shadow:0 6rpx 20rpx rgba(236,72,153,0.18)' : ''}}"
+              >
+                <text class="tag-label">{{item}}</text>
+                <text class="tag-icon">✓</text>
+              </view>
+            </block>
+          </view>
+          <!-- Selected tags preview -->
+          <view class="selected-tags-display" wx:if="{{selectedTags && selectedTags.length > 0}}">
+            <text class="selected-label">Selected:</text>
+            <view class="selected-chips">
+              <block wx:for="{{selectedTags}}" wx:for-item="tag" wx:key="*this">
+                <view class="chip" bindtap="toggleTag" data-tag="{{tag}}">{{tag}}</view>
+              </block>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- Publish Button -->
+      <view class="publish-section">
+        <button class="publish-btn-large" bindtap="handlePublish">Publish Book</button>
+      </view>
+    </block>
+  </scroll-view>
+</view>

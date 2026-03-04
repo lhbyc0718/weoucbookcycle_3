@@ -1,0 +1,128 @@
+<view class="container">
+  <!-- Header -->
+  <view class="header">
+    <view class="search-box">
+      <text class="search-icon">🔍</text>
+      <input 
+        class="search-input" 
+        placeholder="Search title, author, or ISBN..." 
+        type="text" 
+        value="{{searchQuery}}"
+        bindinput="onSearchInput"
+      />
+    </view>
+    
+    <scroll-view class="filter-scroll" scroll-x="true">
+      <view class="filter-tags">
+        <view 
+          class="filter-btn {{showFilters || activeFilterCount > 0 ? 'active' : ''}}" 
+          bindtap="toggleFilters"
+        >
+          <text> Filters {{activeFilterCount > 0 ? '(' + activeFilterCount + ')' : ''}}</text>
+        </view>
+        <block wx:for="{{categories}}" wx:key="*this">
+          <view 
+            class="filter-btn {{selectedCategory === item ? 'selected' : ''}}" 
+            bindtap="onCategoryTap" 
+            data-category="{{item}}"
+          >
+            <text>{{item}}</text>
+          </view>
+        </block>
+      </view>
+    </scroll-view>
+    
+    <!-- Filter Panel -->
+    <view class="filter-panel" wx:if="{{showFilters}}">
+      <view class="filter-header">
+        <text class="filter-title">All Filters</text>
+        <text class="clear-all" bindtap="clearFilters">Clear all</text>
+      </view>
+      
+      <view class="filter-section">
+        <text class="filter-label">Category</text>
+        <view class="filter-options">
+          <block wx:for="{{categories}}" wx:key="*this">
+            <view 
+              class="filter-option {{selectedCategory === item ? 'selected' : ''}}" 
+              bindtap="onCategoryTap" 
+              data-category="{{item}}"
+            >
+              <text>{{item}}</text>
+            </view>
+          </block>
+        </view>
+      </view>
+      
+      <view class="filter-section">
+        <text class="filter-label">Condition</text>
+        <view class="filter-options">
+          <block wx:for="{{conditions}}" wx:key="*this">
+            <view 
+              class="filter-option {{selectedCondition === item ? 'selected' : ''}}" 
+              bindtap="onConditionTap" 
+              data-condition="{{item}}"
+            >
+              <text>{{item}}</text>
+            </view>
+          </block>
+        </view>
+      </view>
+      
+      <view class="filter-section">
+        <text class="filter-label">Location</text>
+        <view class="filter-options">
+          <block wx:for="{{locations}}" wx:key="*this">
+            <view 
+              class="filter-option {{selectedLocation === item ? 'selected' : ''}}" 
+              bindtap="onLocationTap" 
+              data-location="{{item}}"
+            >
+              <text>{{item}}</text>
+            </view>
+          </block>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Content -->
+  <view class="content">
+    <view class="result-info">
+      <text class="result-count">{{filteredBooks.length}} Results found</text>
+      <view class="sort-btn">
+        <text>Sort by: Best Match</text>
+        <text>▼</text>
+      </view>
+    </view>
+    
+    <view class="book-grid">
+      <block wx:for="{{filteredBooks}}" wx:key="id">
+        <view class="book-card" bindtap="onBookClick" data-id="{{item.id}}">
+          <image class="book-cover" src="{{item.cover}}" mode="aspectFill"></image>
+          <view class="book-info">
+            <text class="book-title">{{item.title}}</text>
+            <text class="book-author">{{item.author}}</text>
+            <view class="book-tags" wx:if="{{item.tags && item.tags.length}}">
+              <block wx:for="{{item.tags}}" wx:key="*this">
+                <text class="tag">{{item}}</text>
+              </block>
+            </view>
+            <view class="book-footer">
+              <text class="book-price">¥{{item.price}}</text>
+              <text class="book-condition">{{item.condition}}</text>
+            </view>
+          </view>
+          <view class="wishlist-btn" catchtap="onToggleWishlist" data-id="{{item.id}}">
+            <text>{{wishlist.indexOf(item.id) > -1 ? '❤️' : '🤍'}}</text>
+          </view>
+        </view>
+      </block>
+    </view>
+    
+    <view class="no-result" wx:if="{{filteredBooks.length === 0}}">
+      <text>No books found matching your criteria.</text>
+      <text class="clear-link" bindtap="clearFilters">Clear filters</text>
+    </view>
+  </view>
+</view>

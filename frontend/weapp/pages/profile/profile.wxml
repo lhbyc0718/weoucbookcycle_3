@@ -1,0 +1,47 @@
+<view class="container">
+  <!-- Header -->
+  <view class="header">
+    <text class="header-title">My Profile</text>
+  </view>
+
+  <!-- User Info -->
+  <view class="user-section">
+    <!-- avatar is tappable to update -->
+    <image class="user-avatar" src="{{user.avatar || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop'}}" mode="aspectFill" bindtap="onAvatarTap"></image>
+    <text class="user-name">{{user.name || 'User'}}</text>
+    <view class="user-rank">
+      <text>{{user.rank || 'Member'}}</text>
+    </view>
+    <view class="user-stats">
+      <view class="stat-item">
+        <text class="stat-value">{{user.ratingCount || 0}}</text>
+        <text class="stat-label">Ratings</text>
+      </view>
+      <view class="stat-item">
+        <text class="stat-value">{{user.sales || 0}}</text>
+        <text class="stat-label">Sales</text>
+      </view>
+      <view class="stat-item">
+        <text class="stat-value">{{user.trustScore || 0}}</text>
+        <text class="stat-label">Trust</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- Menu -->
+  <view class="menu-section">
+    <view class="menu-item" bindtap="onMyListings">
+      <text class="menu-icon">📚</text>
+      <text class="menu-text">My Listings</text>
+      <text class="menu-arrow">›</text>
+    </view>
+    <view class="menu-item" bindtap="onWishlist">
+      <text class="menu-icon">❤️</text>
+      <text class="menu-text">Wishlist</text>
+      <text class="menu-arrow">›</text>
+    </view>
+    <!-- removed sold/purchased buttons -->
+  </view>
+
+  <!-- removed settings/help section as requested -->
+</view>

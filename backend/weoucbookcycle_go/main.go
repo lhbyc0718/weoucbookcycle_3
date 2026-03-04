@@ -71,6 +71,11 @@ func main() {
 	}
 	defer config.CloseRedis()
 
+	// 初始化对象存储（S3/MinIO等）
+	if err := config.InitializeStorage(); err != nil {
+		log.Fatalf("Failed to initialize object storage: %v", err)
+	}
+
 	//初始化websocket
 	if err := websocket.InitWebSocket(); err != nil {
 		log.Fatalf("Failed to initialize WebSocket: %v", err)

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"os"
 	"weoucbookcycle_go/controllers"
 	"weoucbookcycle_go/middleware"
 	"weoucbookcycle_go/websocket"
@@ -94,6 +95,13 @@ func SetupRoutes(r *gin.Engine) {
 
 		// 评价卖家
 		api.POST("/evaluate", middleware.AuthMiddleware(), controllers.NewUserController().EvaluateUser)
+
+		// 对于前端自动发现后端地址或其他运行时配置
+		api.GET("/config", func(c *gin.Context) {
+			c.JSON(200, gin.H{
+				"apiBase": os.Getenv("API_BASE"),
+			})
+		})
 	}
 
 	// ====== WebSocket路由 ======
