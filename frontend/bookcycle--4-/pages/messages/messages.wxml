@@ -1,0 +1,68 @@
+<view class="container">
+  <!-- Header -->
+  <view class="header">
+    <text class="header-title">Messages</text>
+    <view class="bell-btn" bindtap="onShowInstructions">
+      <text>🔔</text>
+      <view class="red-dot"></view>
+    </view>
+  </view>
+
+  <!-- Search -->
+  <view class="search-box">
+    <text class="search-icon">🔍</text>
+    <input 
+      class="search-input" 
+      placeholder="Search chats..." 
+      value="{{searchQuery}}"
+      bindinput="onSearchInput"
+    />
+  </view>
+
+  <!-- Active Now -->
+  <view class="active-section" wx:if="{{activeUsers && activeUsers.length > 0}}">
+    <text class="section-label">Active Now</text>
+    <scroll-view class="active-scroll" scroll-x="true">
+      <view class="active-list">
+        <block wx:for="{{activeUsers}}" wx:key="id">
+          <view class="active-item" bindtap="onUserClick" data-userid="{{item.id}}">
+            <view class="avatar-wrapper">
+              <image class="avatar" src="{{item.avatar || 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150&h=150&fit=crop'}}" mode="aspectFill"></image>
+              <view class="online-dot"></view>
+            </view>
+            <text class="user-name">{{item.name || 'User'}}</text>
+          </view>
+        </block>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- Recent Chats -->
+  <view class="chats-section">
+    <text class="section-label">Recent Chats</text>
+    <view class="chat-list" wx:if="{{filteredChats && filteredChats.length > 0}}">
+      <block wx:for="{{filteredChats}}" wx:key="id">
+        <view class="chat-item" bindtap="onChatClick" data-chatid="{{item.id}}">
+          <view class="chat-avatar">
+            <image class="avatar-img" src="{{item.avatar || 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150&h=150&fit=crop'}}" mode="aspectFill"></image>
+            <view class="unread-badge" wx:if="{{item.unreadCount > 0}}">
+              <text>{{item.unreadCount}}</text>
+            </view>
+          </view>
+          <view class="chat-info">
+            <view class="chat-header">
+              <text class="chat-name">{{item.name || 'Unknown'}}</text>
+              <text class="chat-time">{{item.lastMessageTime || ''}}</text>
+            </view>
+            <text class="chat-message {{item.unreadCount > 0 ? 'unread' : ''}}">{{item.lastMessage || ''}}</text>
+          </view>
+        </view>
+      </block>
+    </view>
+    
+    <!-- Empty state -->
+    <view class="no-result" wx:if="{{!filteredChats || filteredChats.length === 0}}">
+      <text>No messages yet.</text>
+    </view>
+  </view>
+</view>

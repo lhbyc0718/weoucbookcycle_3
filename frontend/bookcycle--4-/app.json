@@ -1,0 +1,62 @@
+{
+  "appid": "wxceb369d32ab102d5",
+  "pages": [
+    "pages/index/index",
+    "pages/market/market",
+    "pages/post/post",
+    "pages/messages/messages",
+    "pages/profile/profile",
+    "pages/bookdetail/bookdetail",
+    "pages/chatdetail/chatdetail",
+    "pages/wishlist/wishlist",
+    "pages/sellerlisting/sellerlisting",
+    "pages/mylistings/mylistings"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#1e1b4b",
+    "navigationBarTitleText": "BookCycle",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#1e1b4b"
+  },
+  "tabBar": {
+    "color": "#94a3b8",
+    "selectedColor": "#818cf8",
+    "backgroundColor": "#1e1b4b",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/market/market",
+        "text": "市场"
+      },
+      {
+        "pagePath": "pages/post/post",
+        "text": "发布"
+      },
+      {
+        "pagePath": "pages/messages/messages",
+        "text": "消息"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的"
+      }
+    ]
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "networkTimeout": {
+    "request": 10000,
+    "downloadFile": 10000
+  }
+  ,
+  "config": {
+    "apiBase": "http://localhost:8080",
+    "useCloud": false
+  }
+}

@@ -1,0 +1,22 @@
+/* pages/mylistings/mylistings.wxss */
+.container { min-height:100vh; background:#0f172a; color:#f1f5f9; }
+.header { display:flex; align-items:center; gap:16rpx; padding:20rpx 24rpx; background:rgba(15,23,42,0.95); border-bottom:1rpx solid rgba(255,255,255,0.05); position:sticky; top:0; z-index:10; }
+.back-btn { width:56rpx; height:56rpx; background:transparent; border:none; color:#94a3b8; font-size:32rpx; }
+.header-title { flex:1; font-size:32rpx; font-weight:bold; color:#fff; }
+.search-box { display:flex; align-items:center; padding:28rpx 24rpx; background:rgba(30,41,59,0.3); border-bottom:1rpx solid rgba(255,255,255,0.05); }
+.search-icon { margin-right:12rpx; font-size:28rpx; }
+.search-input { flex:1; padding:12rpx 16rpx; background:rgba(30,41,59,0.5); border:1rpx solid rgba(255,255,255,0.05); border-radius:16rpx; font-size:24rpx; color:#e2e8f0; }
+.search-input::placeholder { color:#64748b; }
+.content { padding:24rpx; }
+.empty { text-align:center; padding:60rpx 24rpx; color:#94a3b8; font-size:26rpx; }
+.book-grid { display:flex; flex-wrap:wrap; gap:20rpx; }
+.book-card { width:48%; background:#1e293b; border-radius:20rpx; overflow:hidden; position:relative; border:1rpx solid rgba(255,255,255,0.05); }
+.book-cover { width:100%; height:220rpx; }
+.book-info { padding:16rpx; }
+.book-title { display:block; font-size:24rpx; font-weight:bold; color:#f1f5f9; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.book-author { display:block; font-size:18rpx; color:#94a3b8; margin-top:6rpx; }
+.book-footer { display:flex; justify-content:space-between; align-items:center; margin-top:12rpx; }
+.book-price { font-size:28rpx; font-weight:bold; color:#818cf8; }
+.book-condition { font-size:18rpx; color:#64748b; }
+.wishlist-btn { position:absolute; top:12rpx; right:12rpx; width:48rpx; height:48rpx; background:rgba(0,0,0,0.4); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:28rpx; }
+.delete-btn { position:absolute; top:12rpx; right:72rpx; width:48rpx; height:48rpx; background:rgba(255,0,0,0.6); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:28rpx; }

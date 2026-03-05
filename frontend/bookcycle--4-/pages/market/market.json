@@ -1,0 +1,6 @@
+{
+  "usingComponents": {},
+  "navigationBarTitleText": "市场",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark"
+}

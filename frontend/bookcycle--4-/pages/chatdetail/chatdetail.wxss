@@ -1,0 +1,92 @@
+.container {
+  height: 100vh;
+  background-color: #0f172a;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Messages List */
+.messages-list {
+  flex: 1;
+  padding: 32rpx;
+  padding-bottom: 20rpx;
+}
+
+.message-item {
+  display: flex;
+  margin-bottom: 32rpx;
+  align-items: flex-end;
+}
+
+.message-item.sent {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  margin: 0 16rpx;
+}
+
+.message-bubble {
+  max-width: 70%;
+  padding: 24rpx;
+  border-radius: 24rpx;
+}
+
+.received .message-bubble {
+  background-color: #1e293b;
+  border-bottom-left-radius: 8rpx;
+}
+
+.sent .message-bubble {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  border-bottom-right-radius: 8rpx;
+}
+
+.message-text {
+  font-size: 28rpx;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+/* Input Bar */
+.input-bar {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 32rpx;
+  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
+  background-color: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(20rpx);
+  border-top: 1rpx solid rgba(255, 255, 255, 0.05);
+}
+
+.message-input {
+  flex: 1;
+  padding: 24rpx 32rpx;
+  background-color: #1e293b;
+  border-radius: 24rpx;
+  font-size: 28rpx;
+  color: #fff;
+  margin-right: 16rpx;
+}
+
+.message-input::placeholder {
+  color: #64748b;
+}
+
+.send-btn {
+  width: 96rpx;
+  height: 96rpx;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.send-btn text {
+  font-size: 36rpx;
+  color: #fff;
+}

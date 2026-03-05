@@ -1,0 +1,123 @@
+<view class="container">
+  <!-- Header -->
+  <header class="header">
+    <view class="header-top">
+      <text class="title">BookCycle</text>
+      <view class="bell-btn" bindtap="onShowInstructions">
+        <text class="bell-icon">🔔</text>
+        <view class="red-dot"></view>
+      </view>
+    </view>
+    
+    <view class="search-box">
+      <text class="search-icon">🔍</text>
+      <input 
+        class="search-input" 
+        placeholder="Search title, ISBN, or author..." 
+        type="text" 
+        value="{{searchQuery}}"
+        bindinput="onSearchInput"
+      />
+      <view class="scan-btn">
+        <text>📷</text>
+      </view>
+    </view>
+  </header>
+
+  <!-- Hero Carousel -->
+  <block wx:if="{{!searchQuery && !selectedCategory}}">
+    <scroll-view class="carousel" scroll-x="true">
+      <view class="carousel-item">
+        <image class="carousel-img" src="https://images.unsplash.com/photo-1507842217343-583bb7260b66?w=800&h=400&fit=crop" mode="aspectFill"></image>
+        <view class="carousel-overlay">
+          <view class="tag">
+            <view class="tag-dot"></view>
+            <text>Featured</text>
+          </view>
+          <text class="carousel-title">Summer Reading List</text>
+          <text class="carousel-desc">Curated sets up to 20% off this week.</text>
+        </view>
+      </view>
+      <view class="carousel-item">
+        <image class="carousel-img" src="https://images.unsplash.com/photo-1512820790803-83ca734da794?w=800&h=400&fit=crop" mode="aspectFill"></image>
+        <view class="carousel-overlay">
+          <view class="tag tag-amber">
+            <view class="tag-dot tag-dot-amber"></view>
+            <text>Top Sellers</text>
+          </view>
+          <text class="carousel-title">Verified Traders</text>
+          <text class="carousel-desc">High trust scores & fast shipping.</text>
+        </view>
+      </view>
+    </scroll-view>
+  </block>
+
+  <!-- Categories -->
+  <block wx:if="{{!searchQuery}}">
+    <view class="categories">
+      <view class="categories-header">
+        <text class="section-title">Categories</text>
+        <text class="clear-filter" wx:if="{{selectedCategory}}" bindtap="clearCategory">Clear Filter</text>
+      </view>
+      <scroll-view class="categories-scroll" scroll-x="true">
+        <view class="category-list">
+          <block wx:for="{{categories}}" wx:key="id">
+            <view class="category-item {{selectedCategory === item.id ? 'selected' : ''}}" bindtap="onCategoryTap" data-id="{{item.id}}">
+              <view class="category-icon {{item.color}}">
+                <text>{{item.icon}}</text>
+              </view>
+              <text class="category-label">{{item.label}}</text>
+            </view>
+          </block>
+        </view>
+      </scroll-view>
+    </view>
+  </block>
+
+  <!-- Book List -->
+  <view class="book-section">
+    <view class="section-header">
+      <text class="section-title">
+        {{searchQuery ? 'Search Results' : (selectedCategory ? selectedCategory : 'Fresh Arrivals')}}
+        <view class="live-dot" wx:if="{{!searchQuery && !selectedCategory}}"></view>
+      </text>
+      <view class="view-toggle" wx:if="{{!searchQuery}}">
+        <view class="toggle-btn active">▦</view>
+        <view class="toggle-btn">☰</view>
+      </view>
+    </view>
+    
+    <view class="book-grid">
+      <block wx:for="{{filteredBooks}}" wx:key="id">
+        <view class="book-card" bindtap="onBookClick" data-id="{{item.id}}">
+          <image class="book-cover" src="{{item.cover}}" mode="aspectFill"></image>
+          <view class="book-info">
+            <text class="book-title">{{item.title}}</text>
+            <text class="book-author">{{item.author}}</text>
+            <view class="book-tags" wx:if="{{item.tags && item.tags.length}}">
+              <block wx:for="{{item.tags}}" wx:key="*this">
+                <text class="tag">{{item}}</text>
+              </block>
+            </view>
+            <view class="book-footer">
+              <text class="book-price">¥{{item.price}}</text>
+              <text class="book-condition">{{item.condition}}</text>
+            </view>
+          </view>
+          <view class="wishlist-btn" catchtap="onToggleWishlist" data-id="{{item.id}}">
+            <text>{{wishlist.indexOf(item.id) > -1 ? '❤️' : '🤍'}}</text>
+          </view>
+        </view>
+      </block>
+    </view>
+    
+    <view class="no-result" wx:if="{{filteredBooks.length === 0}}">
+      <text>No books found matching your criteria.</text>
+      <text class="clear-link" wx:if="{{selectedCategory}}" bindtap="clearCategory">Clear Category Filter</text>
+    </view>
+    
+    <view class="load-more" wx:if="{{!searchQuery && !selectedCategory}}">
+      <button class="load-more-btn">Load More Books</button>
+    </view>
+  </view>
+</view>

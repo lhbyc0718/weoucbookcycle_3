@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Eb Garamond", serif;
+  --font-sans: "Inter", sans-serif;
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #020617; /* slate-950 */
+}

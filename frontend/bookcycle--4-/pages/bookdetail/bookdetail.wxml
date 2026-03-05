@@ -1,0 +1,84 @@
+<view class="container">
+  <!-- Image Swiper -->
+  <swiper class="book-swiper" indicator-dots="true" autoplay="false" wx:if="{{book.images && book.images.length > 0}}">
+    <block wx:for="{{book.images}}" wx:key="*this">
+      <swiper-item>
+        <image class="book-image" src="{{item}}" mode="aspectFill"></image>
+      </swiper-item>
+    </block>
+  </swiper>
+
+  <!-- Fallback single image if no images array -->
+  <view class="book-swiper" wx:if="{{!book.images || book.images.length === 0}}">
+    <image class="book-image" src="{{book.cover || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=800&h=1200&fit=crop'}}" mode="aspectFill"></image>
+  </view>
+
+  <!-- Content -->
+  <view class="content">
+    <!-- Price & Title -->
+    <view class="price-section">
+      <text class="book-price">¥{{book.price || 0}}</text>
+      <text class="book-condition">{{book.condition || 'Good'}}</text>
+    </view>
+    
+    <text class="book-title">{{book.title || 'Unknown Title'}}</text>
+    <text class="book-author">by {{book.author || 'Unknown Author'}}</text>
+
+    <!-- Info Tags -->
+    <view class="info-tags">
+      <view class="info-tag">
+        <text class="tag-icon">📍</text>
+        <text class="tag-text">{{book.location || 'Unknown Location'}}</text>
+      </view>
+      <view class="info-tag">
+        <text class="tag-icon">🚚</text>
+        <text class="tag-text">{{book.shippingTime || 'Contact seller'}}</text>
+      </view>
+    </view>
+
+    <!-- Description -->
+    <view class="description-section">
+      <text class="section-title">Description</text>
+      <text class="description">{{book.description || 'No description available.'}}</text>
+    </view>
+
+    <!-- Tags -->
+    <view class="tags-section" wx:if="{{book.tags && book.tags.length > 0}}">
+      <text class="section-title">Tags</text>
+      <view class="tags-list">
+        <block wx:for="{{book.tags}}" wx:key="*this">
+          <text class="tag">{{item}}</text>
+        </block>
+      </view>
+    </view>
+
+    <!-- Seller Info -->
+    <view class="seller-section">
+      <text class="section-title">Seller</text>
+      <view class="seller-card" bindtap="onViewSellerListings">
+        <image class="seller-avatar" src="{{seller.avatar || 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150&h=150&fit=crop'}}" mode="aspectFill"></image>
+        <view class="seller-info">
+          <text class="seller-name">{{seller.name || 'Unknown Seller'}}</text>
+          <view class="seller-stats">
+            <text class="seller-stat">{{seller.sales || 0}} Sales</text>
+            <text class="seller-stat">{{seller.trustScore || 0}} Trust</text>
+          </view>
+        </view>
+        <view class="verified-badge" wx:if="{{seller.verified}}">✓</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Bottom Action Bar -->
+  <view class="action-bar">
+    <view class="action-btn wishlist-btn" bindtap="onToggleWishlist">
+      <text>{{isWishlisted ? '❤️' : '🤍'}}</text>
+    </view>
+    <view class="action-btn chat-btn" bindtap="onChatSeller">
+      <text>💬 Chat</text>
+    </view>
+    <view class="action-btn delete-btn" wx:if="{{book.sellerId === 'me'}}" bindtap="onDeleteBook">
+      <text>🗑️</text>
+    </view>
+  </view>
+</view>
