@@ -1,10 +1,12 @@
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { HiHome, HiShoppingBag, HiChat, HiPlusCircle, HiUser } from 'react-icons/hi';
 import clsx from 'clsx';
+import { useChatStore } from '../store/chatStore';
 
 export default function MainLayout() {
   const location = useLocation();
   const isPostPage = location.pathname === '/post';
+  const unreadCount = useChatStore(state => state.unreadCount);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex flex-col">
@@ -18,7 +20,14 @@ export default function MainLayout() {
             <nav className="flex space-x-6">
               <NavLink to="/" className={({ isActive }) => clsx("text-sm font-medium transition-colors hover:text-blue-600", isActive ? "text-blue-600" : "text-gray-600")}>首页</NavLink>
               <NavLink to="/market" className={({ isActive }) => clsx("text-sm font-medium transition-colors hover:text-blue-600", isActive ? "text-blue-600" : "text-gray-600")}>市场</NavLink>
-              <NavLink to="/messages" className={({ isActive }) => clsx("text-sm font-medium transition-colors hover:text-blue-600", isActive ? "text-blue-600" : "text-gray-600")}>消息</NavLink>
+              <NavLink to="/messages" className={({ isActive }) => clsx("text-sm font-medium transition-colors hover:text-blue-600 relative", isActive ? "text-blue-600" : "text-gray-600")}>
+                消息
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[16px] text-center">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </NavLink>
             </nav>
           </div>
           
@@ -60,8 +69,15 @@ export default function MainLayout() {
             <span className="text-xs text-gray-500 mt-1">发布</span>
           </NavLink>
 
-          <NavLink to="/messages" className={({ isActive }) => clsx("flex flex-col items-center space-y-1 text-xs transition-colors", isActive ? "text-blue-600" : "text-gray-400")}>
-            <HiChat className="text-2xl" />
+          <NavLink to="/messages" className={({ isActive }) => clsx("flex flex-col items-center space-y-1 text-xs transition-colors relative", isActive ? "text-blue-600" : "text-gray-400")}>
+            <div className="relative">
+              <HiChat className="text-2xl" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[16px] text-center border-2 border-white">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </div>
             <span>消息</span>
           </NavLink>
 

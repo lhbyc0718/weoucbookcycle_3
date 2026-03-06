@@ -126,7 +126,15 @@ class WebSocketService {
   private scheduleReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnect attempts reached');
-      toast.error('无法连接到服务器，请刷新页面重试');
+      // 继续重试，但间隔加大 (60s)
+      const delay = 60000;
+      console.log(`Will retry in ${delay}ms...`);
+      
+      this.reconnectTimeout = setTimeout(() => {
+        this.reconnectAttempts = 0; // 重置计数
+        this.connect();
+      }, delay);
+      
       return;
     }
 

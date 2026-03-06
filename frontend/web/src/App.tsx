@@ -11,13 +11,45 @@ import './index.css';
 import { useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { wsService } from './services/websocket';
+import { useChatStore } from './store/chatStore';
+import { chatApi } from './services/api';
 
 export default function App() {
+  const { incrementUnreadCount, setUnreadCount } = useChatStore();
+
   useEffect(() => {
     // Initialize WebSocket connection
     wsService.connect();
 
+    // Subscribe to messages for global unread count
+    const handleMessage = (data: any) => {
+      // If we are not in the chat where the message belongs, increment unread
+      // Note: Active chat checking should be done, but for now simple increment
+      // Ideally we check if we are on the chat page for that chatID
+      const currentPath = window.location.pathname;
+      if (!currentPath.includes(`/chats/${data.chat_id}`)) {
+         incrementUnreadCount(data.chat_id);
+      }
+    };
+    
+    wsService.subscribe('message', handleMessage);
+
+    // Fetch initial unread count
+    const fetchUnread = async () => {
+        try {
+            const res = await chatApi.getUnreadCount();
+            const data = (res as any).data || res;
+            if (typeof data.total_unread === 'number') {
+                setUnreadCount(data.total_unread);
+            }
+        } catch (e) {
+            console.error("Failed to fetch unread count", e);
+        }
+    };
+    fetchUnread();
+
     return () => {
+      wsService.unsubscribe('message', handleMessage);
       wsService.disconnect();
     };
   }, []);

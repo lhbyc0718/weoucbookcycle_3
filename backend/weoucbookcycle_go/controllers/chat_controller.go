@@ -3,11 +3,10 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
-	"fmt"
 	"weoucbookcycle_go/config"
 	"weoucbookcycle_go/models"
 	"weoucbookcycle_go/services"
@@ -15,8 +14,8 @@ import (
 	ws "weoucbookcycle_go/websocket"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 )
 
 var ctx = context.Background()
@@ -24,64 +23,22 @@ var ctx = context.Background()
 // ChatController 聊天控制器
 type ChatController struct {
 	redisClient *redis.Client
-	upgrader    websocket.Upgrader
-	// 在线用户连接管理
-	clients   map[string]*websocket.Conn // userID -> connection
-	clientsMu sync.RWMutex
-	// 消息队列
-	messageQueue chan MessageTask
-}
-
-// MessageTask 消息任务
-type MessageTask struct {
-	ChatID  string
-	UserID  string
-	Content string
 }
 
 // NewChatController 创建聊天控制器实例
 func NewChatController() *ChatController {
-	cc := &ChatController{
-		redisClient:  config.GetRedisClient(),
-		upgrader:     websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}, // 这里可以保留或统一修改
-		clients:      make(map[string]*websocket.Conn),
-		messageQueue: make(chan MessageTask, 1000),
-	}
-
-	// 启动消息处理worker池
-	cc.startMessageWorkers()
-
-	// 启动心跳检测
-	go cc.heartbeatCheck()
-
-	return cc
-}
-
-// startMessageWorkers 启动消息处理worker池
-// 使用goroutine和channel实现异步消息处理
-func (cc *ChatController) startMessageWorkers() {
-	workerCount := 3 // 启动3个worker处理消息
-
-	for i := 0; i < workerCount; i++ {
-		go cc.messageWorker(i)
-	}
-}
-
-// messageWorker 消息处理worker
-func (cc *ChatController) messageWorker(workerID int) {
-	for task := range cc.messageQueue {
-		// 处理消息逻辑
-		cc.processMessage(task)
+	return &ChatController{
+		redisClient: config.GetRedisClient(),
 	}
 }
 
 // processMessage 处理消息
-func (cc *ChatController) processMessage(task MessageTask) error {
+func (cc *ChatController) processMessage(chatID, userID, content string) error {
 	// 创建消息记录
 	message := models.Message{
-		ChatID:   task.ChatID,
-		SenderID: task.UserID,
-		Content:  task.Content,
+		ChatID:   chatID,
+		SenderID: userID,
+		Content:  content,
 		IsRead:   false,
 	}
 
@@ -99,59 +56,32 @@ func (cc *ChatController) processMessage(task MessageTask) error {
 		From:      message.SenderID,
 		Data:      message, // 包含完整消息数据
 	}
-	
+
 	if err := ws.BroadcastToChat(message.ChatID, "message", wsMsg); err != nil {
 		fmt.Printf("Failed to broadcast message: %v\n", err)
 	}
 
-	// 增加未读计数 (Redis)
+	// 增加未读计数 (Redis 和 Database)
 	// 获取聊天参与者
 	var chatUsers []models.ChatUser
-	config.DB.Where("chat_id = ?", task.ChatID).Find(&chatUsers)
-	
+	config.DB.Where("chat_id = ?", chatID).Find(&chatUsers)
+
 	for _, chatUser := range chatUsers {
-		if chatUser.UserID != task.UserID {
+		if chatUser.UserID != userID {
+			// Update Redis
 			cc.redisClient.Incr(ctx, "unread:"+chatUser.UserID+":"+message.ChatID)
 			cc.redisClient.Expire(ctx, "unread:"+chatUser.UserID+":"+message.ChatID, time.Hour*24*7)
+
+			// Update Database
+			if err := config.DB.Model(&models.ChatUser{}).
+				Where("chat_id = ? AND user_id = ?", chatID, chatUser.UserID).
+				UpdateColumn("unread_count", gorm.Expr("unread_count + ?", 1)).Error; err != nil {
+				fmt.Printf("Failed to update unread count in database: %v\n", err)
+			}
 		}
 	}
 
 	return nil
-}
-
-// sendMessageToUser 发送消息给指定用户
-func (cc *ChatController) sendMessageToUser(userID string, message models.Message) {
-	cc.clientsMu.RLock()
-	conn, exists := cc.clients[userID]
-	cc.clientsMu.RUnlock()
-
-	if exists {
-		conn.WriteJSON(message)
-	}
-
-	// 增加未读计数
-	cc.redisClient.Incr(ctx, "unread:"+userID+":"+message.ChatID)
-	cc.redisClient.Expire(ctx, "unread:"+userID+":"+message.ChatID, time.Hour*24*7)
-}
-
-// heartbeatCheck 心跳检测
-// 定期检查连接是否存活
-func (cc *ChatController) heartbeatCheck() {
-	ticker := time.NewTicker(time.Minute * 1)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		cc.clientsMu.Lock()
-		for userID, conn := range cc.clients {
-			// 发送ping消息检测连接
-			if err := conn.WriteMessage(websocket.TextMessage, []byte("ping")); err != nil {
-				// 连接已断开，移除
-				delete(cc.clients, userID)
-				cc.redisClient.Del(ctx, "online:"+userID)
-			}
-		}
-		cc.clientsMu.Unlock()
-	}
 }
 
 // GetChats 获取聊天列表
@@ -162,7 +92,8 @@ func (cc *ChatController) heartbeatCheck() {
 // @Produce json
 // @Security Bearer
 // @Success 200 {array} ChatResponse
-// @Router /api/v1/chats [get]// GetChats 获取聊天列表
+// @Router /api/v1/chats [get]
+// GetChats 获取聊天列表
 func (cc *ChatController) GetChats(c *gin.Context) {
 	userID := c.GetString("user_id")
 
@@ -185,59 +116,46 @@ func (cc *ChatController) GetChats(c *gin.Context) {
 		chatIDs[i] = cu.ChatID
 	}
 
-	// 并发获取聊天详情
-	var chats []models.ChatResponse
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-
-	for _, chatID := range chatIDs {
-		wg.Add(1)
-		go func(id string) {
-			defer wg.Done()
-
-			var chat models.Chat
-			if err := config.DB.
-				Preload("Users").
-				Preload("Users.User").
-				Where("id = ?", id).
-				First(&chat).Error; err == nil {
-
-				// 从Redis获取最新的未读数（如果有）
-				var unreadCount int64
-
-				if config.RedisClient != nil {
-					unreadKey := "unread:" + userID + ":" + id
-					unread, err := config.RedisClient.Get(ctx, unreadKey).Int64()
-					if err == nil {
-						unreadCount = unread
-					}
-				}
-
-				// 如果Redis中没有，使用数据库中的值（从ChatUser中获取）
-				if unreadCount == 0 {
-					// 从chatUsers中找到对应的ChatUser获取未读数
-					for _, cu := range chatUsers {
-						if cu.ChatID == id {
-							unreadCount = int64(cu.UnreadCount)
-							break
-						}
-					}
-				}
-
-				// 转换为响应结构
-				chatResponse := chat.ToChatResponse(unreadCount)
-
-				// 添加到结果
-				mu.Lock()
-				chats = append(chats, chatResponse)
-				mu.Unlock()
-			}
-		}(chatID)
+	// 批量查询聊天详情
+	var chats []models.Chat
+	if err := config.DB.
+		Preload("Users").
+		Preload("Users.User").
+		Where("id IN ?", chatIDs).
+		Find(&chats).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get chats"})
+		return
 	}
 
-	wg.Wait()
+	// 转换为响应结构
+	var chatResponses []models.ChatResponse
+	for _, chat := range chats {
+		// 从Redis获取最新的未读数（如果有）
+		var unreadCount int64
 
-	c.JSON(http.StatusOK, gin.H{"chats": chats})
+		if config.RedisClient != nil {
+			unreadKey := "unread:" + userID + ":" + chat.ID
+			unread, err := config.RedisClient.Get(ctx, unreadKey).Int64()
+			if err == nil {
+				unreadCount = unread
+			}
+		}
+
+		// 如果Redis中没有，使用数据库中的值（从ChatUser中获取）
+		if unreadCount == 0 {
+			// 从chatUsers中找到对应的ChatUser获取未读数
+			for _, cu := range chatUsers {
+				if cu.ChatID == chat.ID {
+					unreadCount = int64(cu.UnreadCount)
+					break
+				}
+			}
+		}
+
+		chatResponses = append(chatResponses, chat.ToChatResponse(unreadCount))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"chats": chatResponses})
 }
 
 // GetChat 获取聊天详情
@@ -321,14 +239,14 @@ func (cc *ChatController) CreateChat(c *gin.Context) {
 	// 这里简化处理，实际应该查询两个用户是否已有共同的私聊Chat
 	// 假设ChatUser表关联了Chat和User
 	// 查找同时包含这两个用户的ChatID
-	
+
 	/*
-	SELECT c.id FROM chats c
-	JOIN chat_users cu1 ON c.id = cu1.chat_id AND cu1.user_id = ?
-	JOIN chat_users cu2 ON c.id = cu2.chat_id AND cu2.user_id = ?
-	LIMIT 1
+		SELECT c.id FROM chats c
+		JOIN chat_users cu1 ON c.id = cu1.chat_id AND cu1.user_id = ?
+		JOIN chat_users cu2 ON c.id = cu2.chat_id AND cu2.user_id = ?
+		LIMIT 1
 	*/
-	
+
 	var existingChatID string
 	err := config.DB.Raw(`
 		SELECT c.id FROM chats c
@@ -347,12 +265,12 @@ func (cc *ChatController) CreateChat(c *gin.Context) {
 
 	// 创建新聊天室
 	chat := models.Chat{
-		ID:        utils.GenerateUUID(), // 假设有这个工具函数，或者GORM hook生成
+		ID: utils.GenerateUUID(), // 假设有这个工具函数，或者GORM hook生成
 		// Type:      "private", // 默认为私聊 (模型中暂无此字段)
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	
+
 	if chat.ID == "" {
 		// 如果没有自动生成，手动生成一个简单的ID (生产环境应使用UUID库)
 		chat.ID = fmt.Sprintf("%d", time.Now().UnixNano())
@@ -381,7 +299,7 @@ func (cc *ChatController) CreateChat(c *gin.Context) {
 
 	// 重新加载带参与者信息的Chat
 	config.DB.Preload("Participants").First(&chat, "id = ?", chat.ID)
-	
+
 	utils.Success(c, chat)
 }
 
@@ -503,113 +421,12 @@ func (cc *ChatController) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// 将消息任务放入队列（异步处理）
-	task := MessageTask{
-		ChatID:  chatID,
-		UserID:  userID,
-		Content: req.Content,
-	}
+	// 直接处理消息（不再使用内部队列，依靠Go的并发能力）
+	go func() {
+		cc.processMessage(chatID, userID, req.Content)
+	}()
 
-	select {
-	case cc.messageQueue <- task:
-		c.JSON(http.StatusAccepted, gin.H{"message": "Message queued for delivery"})
-	default:
-		// 队列满了，直接处理
-		cc.processMessage(task)
-		c.JSON(http.StatusCreated, gin.H{"message": "Message sent successfully"})
-	}
-}
-
-// HandleWebSocket WebSocket连接处理
-// @Summary WebSocket连接
-// @Description 建立WebSocket连接进行实时通信
-// @Tags chats
-// @Param user_id query string true "用户ID"
-// @Router /ws [get]
-func (cc *ChatController) HandleWebSocket(c *gin.Context) {
-	userID := c.Query("user_id")
-	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
-		return
-	}
-
-	// 升级HTTP连接为WebSocket连接
-	conn, err := cc.upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	// 添加到在线用户
-	cc.clientsMu.Lock()
-	cc.clients[userID] = conn
-	cc.clientsMu.Unlock()
-
-	// 设置Redis在线状态
-	cc.redisClient.Set(ctx, "online:"+userID, "1", time.Minute*5)
-
-	// 发送未读消息
-	go cc.sendUnreadMessages(conn, userID)
-
-	// 监听消息
-	for {
-		messageType, message, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-
-		// 处理接收到的消息
-		var msg map[string]interface{}
-		if err := json.Unmarshal(message, &msg); err != nil {
-			continue
-		}
-
-		// 处理消息类型
-		switch msg["type"] {
-		case "message":
-			if chatID, ok := msg["chat_id"].(string); ok {
-				if content, ok := msg["content"].(string); ok {
-					task := MessageTask{
-						ChatID:  chatID,
-						UserID:  userID,
-						Content: content,
-					}
-					cc.messageQueue <- task
-				}
-			}
-		case "ping":
-			// 心跳响应
-			conn.WriteMessage(messageType, []byte("pong"))
-		}
-	}
-
-	// 连接断开，清理
-	cc.clientsMu.Lock()
-	delete(cc.clients, userID)
-	cc.clientsMu.Unlock()
-
-	cc.redisClient.Del(ctx, "online:"+userID)
-}
-
-// sendUnreadMessages 发送未读消息
-func (cc *ChatController) sendUnreadMessages(conn *websocket.Conn, userID string) {
-	// 获取所有未读消息的key
-	pattern := "unread:" + userID + ":*"
-	keys, _ := cc.redisClient.Keys(ctx, pattern).Result()
-
-	for _, key := range keys {
-		// 提取chat_id
-		chatID := key[len("unread:"+userID+":"):]
-
-		// 获取最后几条消息
-		cacheKey := "chat:" + chatID + ":last_messages"
-		cached, err := cc.redisClient.LRange(ctx, cacheKey, 0, -1).Result()
-		if err == nil {
-			for _, msgStr := range cached {
-				conn.WriteMessage(websocket.TextMessage, []byte(msgStr))
-			}
-		}
-	}
+	c.JSON(http.StatusCreated, gin.H{"message": "Message sent successfully"})
 }
 
 // GetUnreadCount 获取未读消息数

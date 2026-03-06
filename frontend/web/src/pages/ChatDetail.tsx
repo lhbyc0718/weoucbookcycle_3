@@ -24,6 +24,7 @@ export default function ChatDetail() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [targetUser, setTargetUser] = useState<any>(null);
+  const { clearUnreadCount } = useChatStore();
 
   useEffect(() => {
     initChat();
@@ -102,6 +103,11 @@ export default function ChatDetail() {
         const msgs = Array.isArray(msgsRes) ? msgsRes : (msgsRes as any).data || [];
         setMessages(msgs);
         setLoading(false);
+        
+        // Clear unread count in store
+        if (id) {
+            clearUnreadCount(id);
+        }
       }
     } catch (error) {
       console.error('Failed to init chat:', error);
@@ -113,20 +119,25 @@ export default function ChatDetail() {
     if (!newMessage.trim()) return;
 
     try {
-      if (id && id !== 'new') {
+      if (id === 'new' && targetUserId) {
+         // 先创建会话
+         const res = await chatApi.createChat({ user_id: targetUserId });
+         const newChat = (res as any).data || res;
+         const chatId = newChat.id || newChat.data?.id;
+         
+         if (chatId) {
+             // 发送消息
+             await chatApi.sendMessage(chatId, { content: newMessage });
+             
+             // 导航到新会话
+             navigate(`/chats/${chatId}`, { replace: true });
+         } else {
+             console.error('Failed to create chat: Invalid response', res);
+         }
+      } else if (id && id !== 'new') {
         await chatApi.sendMessage(id, { content: newMessage });
         // 不再进行乐观更新，等待 WebSocket 推送，避免重复
         setNewMessage('');
-      } else if (targetUserId) {
-         // Create new chat
-         const res = await chatApi.createChat({ user_id: targetUserId });
-         const newChat = (res as any).data || res;
-         
-         // Send first message
-         await chatApi.sendMessage(newChat.id, { content: newMessage });
-         
-         // Navigate to new chat
-         navigate(`/chats/${newChat.id}`, { replace: true });
       }
     } catch (error) {
       console.error('Failed to send message:', error);

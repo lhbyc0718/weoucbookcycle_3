@@ -22,28 +22,18 @@ var (
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin: func(r *http.Request) bool {
-			// Get allowed origins from environment or config
-			allowedOrigins := config.GetEnv("ALLOW_ORIGINS", "*")
-
-			// 如果配置为*，允许所有
-			if allowedOrigins == "*" {
-				return true
-			}
-
-			// 开发环境自动允许localhost
-			if config.GetEnv("GIN_MODE", "debug") != "release" {
-				return true
-			}
-
+			// 从环境变量读取允许的域名
+			allowedOrigins := strings.Split(config.GetEnv("WS_ALLOWED_ORIGINS", "*"), ",")
 			origin := r.Header.Get("Origin")
 			if origin == "" {
-				return true // Allow non-browser clients
+				return true // 允许没有Origin的请求（如移动应用）
 			}
 
-			// 校验是否在允许列表中（逗号分隔）
-			for _, allowed := range strings.Split(allowedOrigins, ",") {
-				a := strings.TrimSpace(allowed)
-				if a == origin {
+			for _, allowed := range allowedOrigins {
+				if strings.TrimSpace(allowed) == "*" {
+					return true
+				}
+				if strings.TrimSpace(allowed) == origin {
 					return true
 				}
 			}

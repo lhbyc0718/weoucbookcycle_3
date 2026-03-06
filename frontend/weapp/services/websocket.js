@@ -113,7 +113,39 @@ class WebSocketService {
         // Heartbeat response
         return;
     }
-    // Dispatch to app or pages if needed
+
+    try {
+      const msg = JSON.parse(res.data);
+      
+      // 获取当前页面
+      const pages = getCurrentPages();
+      const currentPage = pages[pages.length - 1];
+      
+      // 如果当前页面是聊天详情页，直接更新消息列表
+      if (currentPage && currentPage.route && currentPage.route.includes('chatdetail')) {
+        if (currentPage.onNewMessage) {
+          currentPage.onNewMessage(msg);
+        }
+      }
+      
+      // 更新未读数 (简单模拟，实际应该存入全局状态)
+      const app = getApp();
+      if (app && app.globalData) {
+        app.globalData.unreadCount = (app.globalData.unreadCount || 0) + 1;
+        // 如果有TabBar，更新Badge
+        if (typeof wx.setTabBarBadge === 'function') {
+           // wx.setTabBarBadge(...) // 需要判断是否在TabBar页面
+        }
+      }
+      
+      // 触发全局事件 (如果当前页面实现了onMessage)
+      if (currentPage && currentPage.onMessage) {
+        currentPage.onMessage(msg);
+      }
+
+    } catch (e) {
+      console.error('Failed to parse message:', e);
+    }
   }
   
   close() {

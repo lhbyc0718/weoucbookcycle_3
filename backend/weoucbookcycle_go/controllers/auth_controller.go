@@ -105,6 +105,9 @@ func (ac *AuthController) Register(c *gin.Context) {
 			"email_verified": user.EmailVerified,
 		},
 	})
+
+	// Set HttpOnly Cookie
+	c.SetCookie("jwt_token", token, 7200, "/", "", false, true)
 }
 
 // Login 用户登录
@@ -157,7 +160,14 @@ func (ac *AuthController) Login(c *gin.Context) {
 func (ac *AuthController) RefreshToken(c *gin.Context) {
 	tokenString := c.GetHeader("Authorization")
 	if tokenString == "" {
-		utils.Error(c, utils.CodeUnauthorized, "Authorization header required")
+		// Try to get from cookie
+		if cookie, err := c.Cookie("jwt_token"); err == nil {
+			tokenString = cookie
+		}
+	}
+
+	if tokenString == "" {
+		utils.Error(c, utils.CodeUnauthorized, "Authorization header or cookie required")
 		return
 	}
 
@@ -191,7 +201,14 @@ func (ac *AuthController) RefreshToken(c *gin.Context) {
 func (ac *AuthController) Logout(c *gin.Context) {
 	tokenString := c.GetHeader("Authorization")
 	if tokenString == "" {
-		utils.Error(c, utils.CodeUnauthorized, "Authorization header required")
+		// Try to get from cookie
+		if cookie, err := c.Cookie("jwt_token"); err == nil {
+			tokenString = cookie
+		}
+	}
+
+	if tokenString == "" {
+		utils.Error(c, utils.CodeUnauthorized, "Authorization header or cookie required")
 		return
 	}
 
@@ -208,6 +225,9 @@ func (ac *AuthController) Logout(c *gin.Context) {
 	}
 
 	utils.SuccessWithMessage(c, "Logout successful", nil)
+
+	// Clear HttpOnly Cookie
+	c.SetCookie("jwt_token", "", -1, "/", "", false, true)
 }
 
 // WeChatLoginRequest 微信登录请求
@@ -243,6 +263,9 @@ func (ac *AuthController) WeChatLogin(c *gin.Context) {
 			"email_verified": user.EmailVerified,
 		},
 	})
+
+	// Set HttpOnly Cookie
+	c.SetCookie("jwt_token", token, 7200, "/", "", false, true)
 }
 
 // VerifyEmail 验证邮箱

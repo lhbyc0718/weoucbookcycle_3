@@ -9,6 +9,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE,
   timeout: 10000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -110,7 +111,7 @@ async function refreshToken(): Promise<string> {
   try {
     // 使用新的axios实例以避免拦截器死循环
     const response = await axios.post(`${API_BASE}/api/auth/refresh`, {}, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` }
+      withCredentials: true
     });
     // Handle both wrapper and direct formats for refresh token too
     const data = response.data.code === 20000 ? response.data.data : response.data;
@@ -176,6 +177,8 @@ export const userApi = {
 export const chatApi = {
   getChats: () => 
     apiClient.get('/api/chats'),
+  getUnreadCount: () =>
+    apiClient.get('/api/chats/unread'),
   getChat: (id: string) => 
     apiClient.get(`/api/chats/${id}`),
   getMessages: (chatId: string) =>
