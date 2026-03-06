@@ -29,8 +29,8 @@ export default function Home() {
           bookApi.getHotBooks()
         ]);
         
-        setBooks(Array.isArray(recentData) ? recentData : (recentData as any).data || []);
-        setHotBooks(Array.isArray(hotData) ? hotData : (hotData as any).data || []);
+        setBooks(Array.isArray(recentData) ? recentData : (recentData as any).books || (recentData as any).data || []);
+        setHotBooks(Array.isArray(hotData) ? hotData : (hotData as any).books || (hotData as any).data || []);
       } catch (error) {
         console.error('Failed to load home data:', error);
       } finally {

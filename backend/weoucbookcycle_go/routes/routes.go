@@ -7,6 +7,7 @@ import (
 	"weoucbookcycle_go/websocket"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // SetupRoutes 设置路由
@@ -14,9 +15,9 @@ func SetupRoutes(r *gin.Engine) {
 	// Note: CORS, Logger, and Recovery middleware are already applied in config/server.go:SetupRouter()
 	// Do NOT apply them again here to avoid duplication and conflicts
 
-	// API 路由组（弃用版本号或与前端环境变量保持一致）
-	// 之前使用 /api/v1，如果前端直接请求 /api，可以在这里修改。
-	api := r.Group("/api")
+	// API 路由组
+	// 使用速率限制中间件
+	api := r.Group("/api", middleware.RateLimitMiddleware())
 	{
 		// ====== 认证路由 (无需认证) ======
 		auth := api.Group("/auth")
@@ -107,4 +108,7 @@ func SetupRoutes(r *gin.Engine) {
 	// ====== WebSocket路由 ======
 	r.GET("/ws", websocket.HandleConnection)
 	r.GET("/ws/chat", websocket.HandleConnection)
+
+	// ====== Prometheus Metrics ======
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 }

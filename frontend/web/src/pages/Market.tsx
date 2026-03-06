@@ -28,42 +28,65 @@ export default function Market() {
   const [loading, setLoading] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+
   // Advanced filters
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 1000]);
   const [condition, setCondition] = useState('All');
   const [sortBy, setSortBy] = useState('newest');
 
   useEffect(() => {
-    loadBooks();
+    loadBooks(1, false);
   }, [category, condition, sortBy]);
 
-  const loadBooks = async () => {
+  const loadBooks = async (pageNum: number, isLoadMore: boolean) => {
     setLoading(true);
     try {
-      const params: any = {};
+      const params: any = {
+        page: pageNum,
+        limit: 12
+      };
       if (category !== 'All') params.category = category;
       if (condition !== 'All') params.condition = condition;
       params.sort = sortBy;
       
       const data = await bookApi.getBooks(params);
-      const bookList = Array.isArray(data) ? data : (data as any).data || [];
+      const bookList = Array.isArray(data) ? data : (data as any).books || (data as any).data || [];
       
       const filtered = bookList.filter((b: Book) => 
         b.price >= priceRange[0] && b.price <= priceRange[1]
       );
+
+      if (filtered.length < 12) {
+        setHasMore(false);
+      } else {
+        setHasMore(true);
+      }
       
-      setBooks(filtered);
+      if (isLoadMore) {
+        setBooks(prev => [...prev, ...filtered]);
+      } else {
+        setBooks(filtered);
+      }
+      
+      setPage(pageNum);
     } catch (error) {
       console.error('Failed to load books:', error);
-      setBooks([]);
+      if (!isLoadMore) setBooks([]);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleLoadMore = () => {
+    loadBooks(page + 1, true);
+  };
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
-      loadBooks();
+      loadBooks(1, false);
       return;
     }
     setLoading(true);
@@ -71,6 +94,7 @@ export default function Market() {
       const data = await searchApi.search(searchQuery);
       const results = Array.isArray(data) ? data : (data as any).data || [];
       setBooks(results);
+      setHasMore(false); // Search results usually don't support pagination in this simple impl
     } catch (error) {
       console.error('Search failed:', error);
       setBooks([]);
@@ -185,7 +209,7 @@ export default function Market() {
         </button>
         <button 
           onClick={() => {
-            loadBooks();
+            loadBooks(1, false);
             setShowMobileFilters(false);
           }}
           className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-medium shadow-sm hover:bg-blue-700 transition-colors"
@@ -272,7 +296,7 @@ export default function Market() {
            </div>
 
            <div className="p-4 md:p-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-            {loading ? (
+            {loading && !hasMore ? (
               [1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                 <div key={i} className="bg-white rounded-xl h-64 animate-pulse border border-gray-100">
                   <div className="h-40 bg-gray-200 rounded-t-xl" />
@@ -314,9 +338,24 @@ export default function Market() {
                 </motion.div>
               ))
             ) : (
-              <div className="col-span-2 md:col-span-3 lg:col-span-4 py-20 text-center text-gray-400 flex flex-col items-center">
-                <HiSearch className="text-4xl mb-2 opacity-50" />
-                <p>没有找到相关书籍</p>
+              !loading && (
+                <div className="col-span-2 md:col-span-3 lg:col-span-4 py-20 text-center text-gray-400 flex flex-col items-center">
+                  <HiSearch className="text-4xl mb-2 opacity-50" />
+                  <p>没有找到相关书籍</p>
+                </div>
+              )
+            )}
+            
+            {/* Load More Button */}
+            {books.length > 0 && hasMore && (
+              <div className="col-span-full flex justify-center mt-8">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loading}
+                  className="px-6 py-2 bg-white border border-gray-200 text-gray-600 rounded-full hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? '加载中...' : '加载更多'}
+                </button>
               </div>
             )}
           </div>

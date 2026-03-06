@@ -1,55 +1,73 @@
 // app.js - WeOUCBC 微信小程序
+import websocketService from './services/websocket.js';
+
 App({
   onLaunch: function () {
-    // 云开发初始化
-    if (!wx.cloud) {
-      console.error('请使用 2.2.3 或以上的基础库以使用云能力');
-    } else {
-      wx.cloud.init({
-        // 云开发环境ID - WeOUCBC生产环境
-        env: 'cloudbase-2gswhsg1728d0f01',
-        traceUser: true,
-      });
-    }
+    // 移除云开发初始化，统一使用自有服务器
     
     // 检查登录状态
     this.checkLoginStatus();
 
-    // 初始化 apiBase。优先从扩展配置（云或打包时注入）读取，其次尝试向服务器请求配置
-    const ext = wx.getExtConfigSync ? wx.getExtConfigSync() : {};
-    if (ext && ext.apiBase) {
-      this.globalData.apiBase = ext.apiBase;
-    } else {
-      // 异步请求后端配置，用于在部署时自动获取 apiBase
-      wx.request({
-        url: this.globalData.apiBase + '/api/config',
-        method: 'GET',
-        success: (res) => {
-          if (res && res.data && res.data.apiBase) {
-            this.globalData.apiBase = res.data.apiBase;
-          }
-        },
-        fail: () => {
-          // 请求失败则保持默认
-        },
-      });
-      if (process && process.env && process.env.API_BASE) {
-        this.globalData.apiBase = process.env.API_BASE;
-      }
+    // 初始化 WebSocket
+    const wsUrl = this.globalData.apiBase.replace('http', 'ws') + '/ws';
+    websocketService.init(wsUrl);
+  },
+
+  checkLoginStatus: function() {
+    const userInfo = wx.getStorageSync('userInfo');
+    const token = wx.getStorageSync('token');
+    if (userInfo && token) {
+      this.globalData.userInfo = userInfo;
+      this.globalData.token = token;
     }
   },
 
-  
-  checkLoginStatus: function() {
-    const userInfo = wx.getStorageSync('userInfo');
-    if (userInfo) {
-      this.globalData.userInfo = userInfo;
-    }
+  login: function(userInfo, callback) {
+    const that = this;
+    wx.login({
+      success: res => {
+        if (res.code) {
+          // 发送 res.code 到后台换取 openId, sessionKey, unionId
+          wx.request({
+            url: that.globalData.apiBase + '/api/auth/wechat',
+            method: 'POST',
+            data: {
+              code: res.code,
+              avatar: userInfo.avatarUrl,
+              nickname: userInfo.nickName
+            },
+            success: function(response) {
+              if (response.data.code === 20000) {
+                const { token, user } = response.data.data;
+                that.globalData.token = token;
+                that.globalData.userInfo = user;
+                wx.setStorageSync('token', token);
+                wx.setStorageSync('userInfo', user);
+                if (callback) callback(user);
+              } else {
+                wx.showToast({
+                  title: '登录失败: ' + response.data.message,
+                  icon: 'none'
+                });
+              }
+            },
+            fail: function(err) {
+              wx.showToast({
+                title: '网络错误',
+                icon: 'none'
+              });
+            }
+          })
+        } else {
+          console.log('登录失败！' + res.errMsg)
+        }
+      }
+    })
   },
   
   globalData: {
     userInfo: null,
-    // API基础地址（如果使用自有服务器）
-    apiBase: 'https://your-server.com'
+    token: null,
+    apiBase: 'http://localhost:8080'
   }
 });

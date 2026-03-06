@@ -1,8 +1,8 @@
 package controllers
 
 import (
-	"net/http"
 	"weoucbookcycle_go/services"
+	"weoucbookcycle_go/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -45,7 +45,9 @@ type LoginRequest struct {
 // @Success 200 {object} map[string]interface{}
 // @Router /api/auth/wechat [post]
 type WeChatLoginRequest struct {
-	Code string `json:"code" binding:"required"`
+	Code     string `json:"code" binding:"required"`
+	Avatar   string `json:"avatar"`
+	Nickname string `json:"nickname"`
 }
 
 // VerifyEmailRequest 验证邮箱请求结构
@@ -83,28 +85,24 @@ type ResetPasswordRequest struct {
 func (ac *AuthController) Register(c *gin.Context) {
 	var req services.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeValidationError, err.Error())
 		return
 	}
 
 	user, token, err := ac.authService.Register(&req, c.ClientIP())
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": "注册成功",
-		"data": gin.H{
-			"token":     token,
-			"expiresIn": 7200,
-			"user": gin.H{
-				"id":             user.ID,
-				"username":       user.Username,
-				"email":          user.Email,
-				"email_verified": user.EmailVerified,
-			},
+	utils.SuccessWithMessage(c, "注册成功", gin.H{
+		"token":     token,
+		"expiresIn": 7200,
+		"user": gin.H{
+			"id":             user.ID,
+			"username":       user.Username,
+			"email":          user.Email,
+			"email_verified": user.EmailVerified,
 		},
 	})
 }
@@ -121,29 +119,25 @@ func (ac *AuthController) Register(c *gin.Context) {
 func (ac *AuthController) Login(c *gin.Context) {
 	var req services.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeValidationError, err.Error())
 		return
 	}
 
 	user, token, err := ac.authService.Login(&req, c.ClientIP(), c.Request.UserAgent())
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 40100, "message": err.Error()})
+		utils.Error(c, utils.CodeUnauthorized, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": "登录成功",
-		"data": gin.H{
-			"token":     token,
-			"expiresIn": 7200,
-			"user": gin.H{
-				"id":             user.ID,
-				"username":       user.Username,
-				"email":          user.Email,
-				"avatar":         user.Avatar,
-				"email_verified": user.EmailVerified,
-			},
+	utils.SuccessWithMessage(c, "登录成功", gin.H{
+		"token":     token,
+		"expiresIn": 7200,
+		"user": gin.H{
+			"id":             user.ID,
+			"username":       user.Username,
+			"email":          user.Email,
+			"avatar":         user.Avatar,
+			"email_verified": user.EmailVerified,
 		},
 	})
 }
@@ -160,7 +154,7 @@ func (ac *AuthController) Login(c *gin.Context) {
 func (ac *AuthController) RefreshToken(c *gin.Context) {
 	tokenString := c.GetHeader("Authorization")
 	if tokenString == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 40100, "message": "Authorization header required"})
+		utils.Error(c, utils.CodeUnauthorized, "Authorization header required")
 		return
 	}
 
@@ -171,18 +165,14 @@ func (ac *AuthController) RefreshToken(c *gin.Context) {
 
 	newToken, userInfo, err := ac.authService.RefreshToken(tokenString)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 40100, "message": "Failed to refresh token"})
+		utils.Error(c, utils.CodeUnauthorized, "Failed to refresh token")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": "Token刷新成功",
-		"data": gin.H{
-			"token":     newToken,
-			"expiresIn": 7200,
-			"user":      userInfo,
-		},
+	utils.SuccessWithMessage(c, "Token刷新成功", gin.H{
+		"token":     newToken,
+		"expiresIn": 7200,
+		"user":      userInfo,
 	})
 }
 
@@ -198,7 +188,7 @@ func (ac *AuthController) RefreshToken(c *gin.Context) {
 func (ac *AuthController) Logout(c *gin.Context) {
 	tokenString := c.GetHeader("Authorization")
 	if tokenString == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 40100, "message": "Authorization header required"})
+		utils.Error(c, utils.CodeUnauthorized, "Authorization header required")
 		return
 	}
 
@@ -210,14 +200,11 @@ func (ac *AuthController) Logout(c *gin.Context) {
 	userID := c.GetString("user_id")
 
 	if err := ac.authService.Logout(tokenString, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50000, "message": err.Error()})
+		utils.Error(c, utils.CodeInternalServerError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": "Logout successful",
-	})
+	utils.SuccessWithMessage(c, "Logout successful", nil)
 }
 
 // WeChatLoginRequest 微信登录请求
@@ -233,28 +220,24 @@ func (ac *AuthController) Logout(c *gin.Context) {
 func (ac *AuthController) WeChatLogin(c *gin.Context) {
 	var req WeChatLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeValidationError, err.Error())
 		return
 	}
 
-	user, token, err := ac.authService.WeChatLogin(req.Code, c.ClientIP())
+	user, token, err := ac.authService.WeChatLogin(req.Code, req.Avatar, req.Nickname, c.ClientIP())
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 40100, "message": err.Error()})
+		utils.Error(c, utils.CodeUnauthorized, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": "登录成功",
-		"data": gin.H{
-			"token":     token,
-			"expiresIn": 7200,
-			"user": gin.H{
-				"id":             user.ID,
-				"username":       user.Username,
-				"avatar":         user.Avatar,
-				"email_verified": user.EmailVerified,
-			},
+	utils.SuccessWithMessage(c, "登录成功", gin.H{
+		"token":     token,
+		"expiresIn": 7200,
+		"user": gin.H{
+			"id":             user.ID,
+			"username":       user.Username,
+			"avatar":         user.Avatar,
+			"email_verified": user.EmailVerified,
 		},
 	})
 }
@@ -271,19 +254,16 @@ func (ac *AuthController) WeChatLogin(c *gin.Context) {
 func (ac *AuthController) VerifyEmail(c *gin.Context) {
 	var req VerifyEmailRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeValidationError, err.Error())
 		return
 	}
 
 	if err := ac.authService.VerifyEmail(req.Email, req.Code); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": "Email verified successfully",
-	})
+	utils.SuccessWithMessage(c, "Email verified successfully", nil)
 }
 
 // ResendVerificationCode 重新发送验证码
@@ -298,19 +278,16 @@ func (ac *AuthController) VerifyEmail(c *gin.Context) {
 func (ac *AuthController) ResendVerificationCode(c *gin.Context) {
 	var req ResendVerificationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeValidationError, err.Error())
 		return
 	}
 
 	if err := ac.authService.ResendVerificationCode(req.Email); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": "Verification code sent successfully",
-	})
+	utils.SuccessWithMessage(c, "Verification code sent successfully", nil)
 }
 
 // SendPasswordResetToken 发送密码重置令牌
@@ -325,19 +302,16 @@ func (ac *AuthController) ResendVerificationCode(c *gin.Context) {
 func (ac *AuthController) SendPasswordResetToken(c *gin.Context) {
 	var req SendPasswordResetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeValidationError, err.Error())
 		return
 	}
 
 	if err := ac.authService.SendPasswordResetToken(req.Email); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50000, "message": err.Error()})
+		utils.Error(c, utils.CodeInternalServerError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": "Password reset email sent",
-	})
+	utils.SuccessWithMessage(c, "Password reset email sent", nil)
 }
 
 // ResetPassword 重置密码
@@ -352,17 +326,14 @@ func (ac *AuthController) SendPasswordResetToken(c *gin.Context) {
 func (ac *AuthController) ResetPassword(c *gin.Context) {
 	var req ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeValidationError, err.Error())
 		return
 	}
 
 	if err := ac.authService.ResetPassword(req.Email, req.Token, req.NewPassword); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 40000, "message": err.Error()})
+		utils.Error(c, utils.CodeError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": "Password reset successfully",
-	})
+	utils.SuccessWithMessage(c, "Password reset successfully", nil)
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,7 @@ type UploadConfig struct {
 
 // DefaultUploadConfig 默认上传配置
 var DefaultUploadConfig = &UploadConfig{
-	MaxFileSize:    10 * 1024 * 1024, // 10MB
+	MaxFileSize:    5 * 1024 * 1024, // 5MB
 	AllowedFormats: []string{".jpg", ".jpeg", ".png", ".gif", ".webp"},
 	UploadPath:     "./uploads",
 	GenerateThumb:  true,
@@ -199,6 +200,25 @@ func (fu *FileUploader) UploadFiles(c *gin.Context, fieldName string) ([]*Upload
 			// 验证文件大小
 			if f.Size > fu.config.MaxFileSize {
 				errorChan <- fmt.Errorf("file %s exceeds maximum size", f.Filename)
+				return
+			}
+
+			// 验证文件魔数（Magic Number）
+			buffer := make([]byte, 512)
+			_, err = src.Read(buffer)
+			if err != nil && err != io.EOF {
+				errorChan <- fmt.Errorf("failed to read file header for %s: %w", f.Filename, err)
+				return
+			}
+			// 重置文件指针
+			if _, err := src.Seek(0, 0); err != nil {
+				errorChan <- fmt.Errorf("failed to seek file %s: %w", f.Filename, err)
+				return
+			}
+
+			contentType := http.DetectContentType(buffer)
+			if !strings.HasPrefix(contentType, "image/") {
+				errorChan <- fmt.Errorf("invalid file type for %s: %s, only images are allowed", f.Filename, contentType)
 				return
 			}
 

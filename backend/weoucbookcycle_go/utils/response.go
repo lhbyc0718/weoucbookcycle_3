@@ -15,7 +15,7 @@ import (
 type Response struct {
 	Code    int         `json:"code"`            // 业务状态码
 	Message string      `json:"message"`         // 响应消息
-	Data    interface{} `json:"data,omitempty"`  // 响应数据
+	Data    interface{} `json:"data"`            // 响应数据
 	Error   string      `json:"error,omitempty"` // 错误信息
 }
 

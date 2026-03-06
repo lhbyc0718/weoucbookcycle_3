@@ -10,6 +10,7 @@ import (
 	"weoucbookcycle_go/config"
 	"weoucbookcycle_go/models"
 	"weoucbookcycle_go/services"
+	"weoucbookcycle_go/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -159,11 +160,11 @@ func (bc *BookController) GetBooks(c *gin.Context) {
 		Limit(limit).
 		Offset(offset).
 		Find(&books).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get books"})
+		utils.Error(c, utils.CodeInternalServerError, "Failed to get books")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	utils.Success(c, gin.H{
 		"books": books,
 		"total": total,
 		"page":  page,
@@ -191,7 +192,7 @@ func (bc *BookController) GetBook(c *gin.Context) {
 		if json.Unmarshal([]byte(cached), &book) == nil {
 			// 异步更新浏览统计（不阻塞响应）
 			bc.statsQueue <- BookStatUpdate{BookID: bookID, Type: "view"}
-			c.JSON(http.StatusOK, book)
+			utils.Success(c, book)
 			return
 		}
 	}
@@ -199,7 +200,7 @@ func (bc *BookController) GetBook(c *gin.Context) {
 	// 缓存未命中，从数据库查询
 	var book models.Book
 	if err := config.DB.Preload("Seller").First(&book, "id = ?", bookID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Book not found"})
+		utils.Error(c, utils.CodeNotFound, "Book not found")
 		return
 	}
 
@@ -212,7 +213,7 @@ func (bc *BookController) GetBook(c *gin.Context) {
 		bc.redisClient.Set(ctx, cacheKey, data, time.Minute*10)
 	}()
 
-	c.JSON(http.StatusOK, book)
+	utils.Success(c, book)
 }
 
 // CreateBook 创建书籍
@@ -230,7 +231,7 @@ func (bc *BookController) CreateBook(c *gin.Context) {
 
 	var req CreateBookRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.Error(c, utils.CodeValidationError, err.Error())
 		return
 	}
 
@@ -251,7 +252,7 @@ func (bc *BookController) CreateBook(c *gin.Context) {
 	}
 
 	if err := config.DB.Create(&book).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create book"})
+		utils.Error(c, utils.CodeInternalServerError, "Failed to create book")
 		return
 	}
 
@@ -260,7 +261,7 @@ func (bc *BookController) CreateBook(c *gin.Context) {
 		bc.redisClient.Del(ctx, "hot:books")
 	}()
 
-	c.JSON(http.StatusCreated, book)
+	utils.Success(c, book)
 }
 
 // UpdateBook 更新书籍
@@ -280,19 +281,19 @@ func (bc *BookController) UpdateBook(c *gin.Context) {
 
 	var book models.Book
 	if err := config.DB.First(&book, "id = ?", bookID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Book not found"})
+		utils.Error(c, utils.CodeNotFound, "Book not found")
 		return
 	}
 
 	// 检查权限
 	if book.SellerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to update this book"})
+		utils.Error(c, utils.CodeForbidden, "You don't have permission to update this book")
 		return
 	}
 
 	var req UpdateBookRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.Error(c, utils.CodeValidationError, err.Error())
 		return
 	}
 
@@ -325,7 +326,7 @@ func (bc *BookController) UpdateBook(c *gin.Context) {
 	}
 
 	if err := config.DB.Model(&book).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update book"})
+		utils.Error(c, utils.CodeInternalServerError, "Failed to update book")
 		return
 	}
 
@@ -335,7 +336,7 @@ func (bc *BookController) UpdateBook(c *gin.Context) {
 		bc.redisClient.Del(ctx, "hot:books")
 	}()
 
-	c.JSON(http.StatusOK, book)
+	utils.Success(c, book)
 }
 
 // DeleteBook 删除书籍
@@ -354,18 +355,18 @@ func (bc *BookController) DeleteBook(c *gin.Context) {
 
 	var book models.Book
 	if err := config.DB.First(&book, "id = ?", bookID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Book not found"})
+		utils.Error(c, utils.CodeNotFound, "Book not found")
 		return
 	}
 
 	// 检查权限
 	if book.SellerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "You don't have permission to delete this book"})
+		utils.Error(c, utils.CodeForbidden, "You don't have permission to delete this book")
 		return
 	}
 
 	if err := config.DB.Delete(&book).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete book"})
+		utils.Error(c, utils.CodeInternalServerError, "Failed to delete book")
 		return
 	}
 
@@ -375,7 +376,7 @@ func (bc *BookController) DeleteBook(c *gin.Context) {
 		bc.redisClient.Del(ctx, "hot:books")
 	}()
 
-	c.JSON(http.StatusOK, gin.H{"message": "Book deleted successfully"})
+	utils.SuccessWithMessage(c, "Book deleted successfully", nil)
 }
 
 // GetHotBooks 获取热门书籍
@@ -408,7 +409,7 @@ func (bc *BookController) GetHotBooks(c *gin.Context) {
 		Order("view_count DESC, like_count DESC, created_at DESC").
 		Limit(limit).
 		Find(&books).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get hot books"})
+		utils.Error(c, utils.CodeInternalServerError, "Failed to get hot books")
 		return
 	}
 
@@ -418,7 +419,7 @@ func (bc *BookController) GetHotBooks(c *gin.Context) {
 		bc.redisClient.Set(ctx, cacheKey, data, time.Minute*10)
 	}()
 
-	c.JSON(http.StatusOK, gin.H{"books": books})
+	utils.Success(c, gin.H{"books": books})
 }
 
 // SearchBooks 搜索书籍
@@ -435,7 +436,7 @@ func (bc *BookController) GetHotBooks(c *gin.Context) {
 func (bc *BookController) SearchBooks(c *gin.Context) {
 	query := c.Query("q")
 	if query == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Search query is required"})
+		utils.Error(c, utils.CodeValidationError, "Search query is required")
 		return
 	}
 
@@ -449,7 +450,7 @@ func (bc *BookController) SearchBooks(c *gin.Context) {
 	if err == nil {
 		var result map[string]interface{}
 		if json.Unmarshal([]byte(cached), &result) == nil {
-			c.JSON(http.StatusOK, result)
+			utils.Success(c, result)
 			return
 		}
 	}
@@ -476,7 +477,7 @@ func (bc *BookController) SearchBooks(c *gin.Context) {
 		Limit(limit).
 		Offset(offset).
 		Find(&books).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search books"})
+		utils.Error(c, utils.CodeInternalServerError, "Failed to search books")
 		return
 	}
 
@@ -494,7 +495,7 @@ func (bc *BookController) SearchBooks(c *gin.Context) {
 		bc.redisClient.Set(ctx, cacheKey, data, time.Minute*5)
 	}()
 
-	c.JSON(http.StatusOK, result)
+	utils.Success(c, result)
 }
 
 // LikeBookRequest 点赞请求结构
@@ -520,7 +521,7 @@ func (bc *BookController) LikeBook(c *gin.Context) {
 
 	liked, err := bookService.LikeBook(userID, bookID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50000, "message": err.Error()})
+		utils.Error(c, utils.CodeInternalServerError, err.Error())
 		return
 	}
 
@@ -529,13 +530,9 @@ func (bc *BookController) LikeBook(c *gin.Context) {
 		message = "Unliked successfully"
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": message,
-		"data": gin.H{
-			"book_id": bookID,
-			"liked":   liked,
-		},
+	utils.SuccessWithMessage(c, message, gin.H{
+		"book_id": bookID,
+		"liked":   liked,
 	})
 }
 
@@ -557,16 +554,12 @@ func (bc *BookController) GetRecommendations(c *gin.Context) {
 
 	books, err := bookService.GetRecommendations(userID, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 50000, "message": err.Error()})
+		utils.Error(c, utils.CodeInternalServerError, err.Error())
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code":    20000,
-		"message": "Success",
-		"data": gin.H{
-			"books": books,
-		},
+	utils.SuccessWithMessage(c, "Success", gin.H{
+		"books": books,
 	})
 }
 

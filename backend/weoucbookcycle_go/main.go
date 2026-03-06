@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 
 	"weoucbookcycle_go/config"
 	"weoucbookcycle_go/middleware"
@@ -10,6 +16,7 @@ import (
 	"weoucbookcycle_go/routes"
 	"weoucbookcycle_go/websocket"
 
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
@@ -83,7 +90,7 @@ func main() {
 	defer websocket.CloseWebSocket()
 
 	// 设置路由
-	r := config.SetupRouter()
+	r := setupRouter()
 
 	// 注册自定义路由
 	routes.SetupRoutes(r)
@@ -99,15 +106,131 @@ func main() {
 	log.Printf("🚀 Server starting on port %s (mode=%s)", port, ginMode)
 	log.Printf("📚 API health: http://localhost:%s/health", port)
 
-	if certFile != "" && keyFile != "" {
-		log.Println("Starting HTTPS server with provided TLS certificate")
-		if err := r.RunTLS(addr, certFile, keyFile); err != nil {
-			log.Fatalf("Failed to start HTTPS server: %v", err)
-		}
-	} else {
-		if err := r.Run(addr); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
-		}
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: r,
 	}
 
+	// Initializing the server in a goroutine so that
+	// it won't block the graceful shutdown handling below
+	go func() {
+		var err error
+		if certFile != "" && keyFile != "" {
+			log.Println("Starting HTTPS server with provided TLS certificate")
+			err = srv.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown the server with
+	// a timeout of 5 seconds.
+	quit := make(chan os.Signal, 1)
+	// kill (no param) default send syscall.SIGTERM
+	// kill -2 is syscall.SIGINT
+	// kill -9 is syscall.SIGKILL but can't be catch, so don't need add it
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+
+	// The context is used to inform the server it has 5 seconds to finish
+	// the request it is currently handling
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("Server forced to shutdown: ", err)
+	}
+
+	log.Println("Server exiting")
+}
+
+// setupRouter 设置路由
+func setupRouter() *gin.Engine {
+	serverConfig := config.GetServerConfig()
+
+	// 根据环境设置Gin模式
+	gin.SetMode(serverConfig.Mode)
+
+	// 创建Gin实例
+	r := gin.New()
+
+	// 全局中间件
+	r.Use(gin.Recovery())              // 恢复panic
+	r.Use(middleware.Logger())         // 使用 Zap Logger
+	r.Use(middleware.GzipMiddleware()) // Gzip 压缩
+
+	// CORS配置
+	if config.GetEnv("DISABLE_CORS", "false") != "true" {
+		// 使用统一的中间件配置
+		allowList := config.GetEnv("ALLOW_ORIGINS", "")
+		var allowedOrigins []string
+		if allowList != "" && allowList != "*" {
+			for _, o := range strings.Split(allowList, ",") {
+				allowedOrigins = append(allowedOrigins, strings.TrimSpace(o))
+			}
+		}
+
+		if len(allowedOrigins) > 0 {
+			r.Use(middleware.CORS(middleware.GetProductionCORSConfig(allowedOrigins)))
+		} else {
+			r.Use(middleware.CORS())
+		}
+	} else {
+		log.Println("⚠️  CORS middleware disabled (DISABLE_CORS=true)")
+	}
+
+	// 打印当前环境（API 环境）以便排查
+	apiEnv := config.GetEnv("API_ENV", "development")
+	log.Printf("API_ENV=%s, GIN_MODE=%s", apiEnv, serverConfig.Mode)
+
+	// 可选：如果后端也需要托管 Web 前端（默认false），可以通过环境变量开启
+	if config.GetEnv("SERVE_WEB", "false") == "true" {
+		webPath := config.GetEnv("WEB_DIST_PATH", "../frontend/web/dist")
+		log.Printf("Serving static web files from %s", webPath)
+		r.StaticFS("/", gin.Dir(webPath, false))
+	}
+
+	// 健康检查端点（包括数据库和Redis状态）
+	r.GET("/health", func(c *gin.Context) {
+		health := gin.H{
+			"status":  "ok",
+			"message": "Server is running",
+		}
+
+		// 检查数据库状态
+		if config.DB != nil {
+			sqlDB, err := config.DB.DB()
+			if err == nil {
+				if err := sqlDB.Ping(); err == nil {
+					health["database"] = "connected"
+				} else {
+					health["database"] = "disconnected"
+				}
+			} else {
+				health["database"] = "error"
+			}
+		} else {
+			health["database"] = "not initialized"
+		}
+
+		// 检查Redis状态
+		if config.RedisClient != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if err := config.RedisClient.Ping(ctx).Err(); err == nil {
+				health["redis"] = "connected"
+			} else {
+				health["redis"] = "disconnected"
+			}
+		} else {
+			health["redis"] = "not initialized"
+		}
+
+		c.JSON(200, health)
+	})
+
+	return r
 }

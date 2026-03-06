@@ -20,105 +20,102 @@ Page({
     ],
     conditions: [],
     locations: [],
-    activeFilterCount: 0
+    activeFilterCount: 0,
+    loading: false,
+    page: 1,
+    hasMore: true
   },
 
   onLoad: function() {
-    this.loadBooks();
+    this.loadBooks(false);
     const wishlist = wx.getStorageSync('wishlist') || [];
     this.setData({ wishlist });
   },
 
   onShow: function() {
-    this.loadBooks();
+    // onShow usually doesn't need to reload everything if we want to keep scroll position, 
+    // but if we want to refresh data, we might. 
+    // The original code called loadBooks() here. 
+    // To avoid resetting pagination on every show (like returning from detail), maybe we should check if data exists?
+    // But strictly following "Update loadBooks to accept loadMore", I will adjust the call.
+    // If we want to refresh, we should probably reset to page 1.
+    if (this.data.books.length === 0) {
+      this.loadBooks(false);
+    }
     const wishlist = wx.getStorageSync('wishlist') || (getApp() && getApp().globalData && getApp().globalData.wishlist) || [];
     this.setData({ wishlist });
   },
 
-  loadBooks: function() {
-    const that = this;
-    if (wx.cloud && wx.cloud.database) {
-      const db = wx.cloud.database();
-      db.collection('books').get().then(r => {
-        let books = r.data || [];
-        const local = wx.getStorageSync('myBooks') || [];
-        if (local.length) {
-          books = local.concat(books);
-        }
-        const conditions = [...new Set(books.map(b => b.condition).filter(Boolean))];
-        const locations = [...new Set(books.map(b => b.location).filter(Boolean))];
-        that.setData({ books: books, filteredBooks: books, conditions, locations });
-      }).catch(() => {
-        let mockBooks = that.getMockBooks();
-        const local = wx.getStorageSync('myBooks') || [];
-        if (local.length) {
-          mockBooks = local.concat(mockBooks);
-        }
-        const conditions = [...new Set(mockBooks.map(b => b.condition).filter(Boolean))];
-        const locations = [...new Set(mockBooks.map(b => b.location).filter(Boolean))];
-        that.setData({ books: mockBooks, filteredBooks: mockBooks, conditions, locations });
-      });
-    } else {
-      wx.request({
-        url: app.globalData.apiBase + '/api/init',
-        success: function(res) {
-          let books = res.data.books || [];
-          const local = wx.getStorageSync('myBooks') || [];
-          if (local.length) {
-            books = local.concat(books);
-          }
-          const conditions = [...new Set(books.map(b => b.condition).filter(Boolean))];
-          const locations = [...new Set(books.map(b => b.location).filter(Boolean))];
-          that.setData({ books: books, filteredBooks: books, conditions, locations });
-        },
-        fail: function() {
-          let mockBooks = that.getMockBooks();
-          const local = wx.getStorageSync('myBooks') || [];
-          if (local.length) {
-            mockBooks = local.concat(mockBooks);
-          }
-          const conditions = [...new Set(mockBooks.map(b => b.condition).filter(Boolean))];
-          const locations = [...new Set(mockBooks.map(b => b.location).filter(Boolean))];
-          that.setData({ books: mockBooks, filteredBooks: mockBooks, conditions, locations });
-        }
-      });
+  onReachBottom: function() {
+    if (this.data.hasMore && !this.data.loading) {
+      this.loadBooks(true);
     }
   },
 
-  getMockBooks: function() {
-    return [
-      {
-        id: '1',
-        title: 'The Great Gatsby (Hardcover)',
-        author: 'F. Scott Fitzgerald',
-        cover: 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400&h=600&fit=crop',
-        price: 25,
-        condition: '98% New',
-        category: 'Literature',
-        location: 'Shanghai, CN'
+  loadBooks: function(loadMore = false) {
+    const that = this;
+    if (this.data.loading) return;
+    
+    this.setData({ loading: true });
+    
+    const page = loadMore ? this.data.page + 1 : 1;
+    
+    // Always use self-hosted server
+    wx.request({
+      url: app.globalData.apiBase + '/api/books', 
+      data: {
+        page: page,
+        limit: 10 // Assuming a default limit
       },
-      {
-        id: '2',
-        title: 'The Design of Everyday Things',
-        author: 'Don Norman',
-        cover: 'https://images.unsplash.com/photo-1589829085413-56de8ae18c73?w=400&h=600&fit=crop',
-        price: 45,
-        condition: 'Like New',
-        category: 'Design',
-        location: 'Shanghai, CN'
+      method: 'GET',
+      success: function(res) {
+        let newBooks = [];
+        // Handle different response structures
+        if (res.data && Array.isArray(res.data)) {
+            newBooks = res.data;
+        } else if (res.data && res.data.data && Array.isArray(res.data.data)) {
+            newBooks = res.data.data;
+        } else if (res.data && res.data.books && Array.isArray(res.data.books)) {
+            newBooks = res.data.books;
+        }
+
+        const conditions = [...new Set(newBooks.map(b => b.condition).filter(Boolean))];
+        const locations = [...new Set(newBooks.map(b => b.location).filter(Boolean))];
+        
+        let allBooks = loadMore ? that.data.books.concat(newBooks) : newBooks;
+        
+        // If we are loading more, we might want to merge conditions/locations or just keep them?
+        // The original logic replaced them. Let's merge them to be safe or re-calculate from allBooks.
+        const allConditions = [...new Set(allBooks.map(b => b.condition).filter(Boolean))];
+        const allLocations = [...new Set(allBooks.map(b => b.location).filter(Boolean))];
+
+        that.setData({ 
+            books: allBooks, 
+            filteredBooks: allBooks, // Note: This resets filters. Ideally we should re-apply filters.
+            conditions: allConditions, 
+            locations: allLocations,
+            loading: false,
+            page: page,
+            hasMore: newBooks.length > 0 // Simple check, or check if newBooks.length === limit
+        });
+        
+        // Re-apply filters if any
+        if (that.data.searchQuery || that.data.selectedCategory || that.data.selectedCondition || that.data.selectedLocation) {
+            that.filterBooks();
+        }
       },
-      {
-        id: '3',
-        title: 'Sapiens: A Brief History',
-        author: 'Yuval Noah Harari',
-        cover: 'https://images.unsplash.com/photo-1541963463532-d68292c34b19?w=400&h=600&fit=crop',
-        price: 35,
-        condition: 'New',
-        category: 'History',
-        location: 'Beijing, CN'
+      fail: function(err) {
+        console.error('Failed to load books:', err);
+        wx.showToast({
+            title: '加载失败，请检查网络',
+            icon: 'none'
+        });
+        that.setData({ loading: false });
       }
-    ];
+    });
   },
+
+  // Removed getMockBooks function
 
   onSearchInput: function(e) {
     this.setData({ searchQuery: e.detail.value });
@@ -215,5 +212,11 @@ Page({
     wx.setStorageSync('wishlist', wishlist);
     const app = getApp();
     if (app && app.globalData) app.globalData.wishlist = wishlist;
+    
+    // Sync with backend if logged in
+    // This part assumes backend has /api/users/wishlist/toggle which we added/checked in backend routes
+    // But we need auth token. 
+    // Simplified for now as requested "Unify Data Source" primarily focuses on read.
+    // Ideally we should call API here.
   }
 });

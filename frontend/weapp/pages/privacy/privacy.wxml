@@ -1,0 +1,27 @@
+<view class="container">
+  <view class="title">用户协议与隐私政策</view>
+  <view class="content">
+    <view class="section">
+      <view class="h2">1. 导言</view>
+      <text class="p">欢迎您使用WeOUC BookCycle（以下简称“本服务”）。本服务由WeOUC开发并运营。本协议是您与WeOUC之间关于您使用本服务所订立的协议。</text>
+    </view>
+    <view class="section">
+      <view class="h2">2. 我们收集的信息</view>
+      <text class="p">为了向您提供更好的服务，我们可能会收集您的以下信息：</text>
+      <text class="li">• 微信昵称、头像（经您授权）</text>
+      <text class="li">• 发布的书籍信息（包括图片、描述等）</text>
+      <text class="li">• 聊天记录（仅用于双方沟通）</text>
+    </view>
+    <view class="section">
+      <view class="h2">3. 信息使用</view>
+      <text class="p">我们收集的信息将仅用于：</text>
+      <text class="li">• 提供二手书交易服务</text>
+      <text class="li">• 改善用户体验</text>
+      <text class="li">• 防止欺诈和滥用</text>
+    </view>
+    <view class="section">
+      <view class="h2">4. 联系我们</view>
+      <text class="p">如果您有任何问题，请联系客服。</text>
+    </view>
+  </view>
+</view>

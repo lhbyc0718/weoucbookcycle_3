@@ -21,8 +21,11 @@ var (
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin: func(r *http.Request) bool {
-			// 生产环境应该验证origin
-			return true
+			// In production, you should verify the origin
+			// For example:
+			// origin := r.Header.Get("Origin")
+			// return origin == "https://your-domain.com"
+			return true // Still allowing all for dev, but marked as TODO for user to change
 		},
 	}
 
@@ -85,9 +88,6 @@ func InitWebSocket() error {
 		go subscribeToRedis()
 	}
 
-	// 启动心跳检测
-	go heartbeatChecker()
-
 	log.Println("✅ WebSocket service initialized")
 	return nil
 }
@@ -141,6 +141,31 @@ func HandleConnection(c *gin.Context) {
 // readPump 从WebSocket连接读取消息
 func (c *Client) readPump() {
 	defer func() {
+		// 清理连接
+		log.Printf("Closing connection for user %s", c.ID)
+
+		// 从所有聊天室移除
+		c.mu.Lock()
+		for chatID := range c.ChatRooms {
+			if room, exists := getChatRoom(chatID); exists {
+				room.mu.Lock()
+				delete(room.Clients, c.ID)
+				room.mu.Unlock()
+			}
+		}
+		c.mu.Unlock()
+
+		// 从客户端列表移除
+		clientsMutex.Lock()
+		delete(clients, c.ID)
+		clientsMutex.Unlock()
+
+		// 更新Redis在线状态
+		if config.RedisClient != nil {
+			config.RedisClient.Del(redisCtx, "online:"+c.ID)
+			config.RedisClient.SRem(redisCtx, "online:users", c.ID)
+		}
+
 		c.Connection.Close()
 	}()
 
@@ -178,7 +203,7 @@ func (c *Client) readPump() {
 
 // writePump 向WebSocket连接写入消息
 func (c *Client) writePump() {
-	ticker := time.NewTicker(54 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer func() {
 		ticker.Stop()
 		c.Connection.Close()
@@ -372,36 +397,41 @@ func (c *Client) handleLeaveChat(message *WSMessage) {
 // startBroadcastWorker 启动广播worker
 func startBroadcastWorker() {
 	for broadcast := range broadcastQueue {
-		chatRoom, exists := getChatRoom(broadcast.ChatID)
-		if !exists {
-			continue
-		}
-
-		// 向聊天室中的所有客户端广播消息
-		chatRoom.mu.RLock()
-		defer chatRoom.mu.RUnlock()
-
-		var wg sync.WaitGroup
-		for _, client := range chatRoom.Clients {
-			wg.Add(1)
-			go func(c *Client, data interface{}) {
-				defer wg.Done()
-				select {
-				case c.Send <- &WSMessage{
-					Type:      broadcast.Type,
-					ChatID:    broadcast.ChatID,
-					Data:      data,
-					Timestamp: time.Now().Unix(),
-				}:
-				default:
-					// 发送队列满了，断开连接
-					log.Printf("Client %s send queue is full, closing connection", c.ID)
-					c.Connection.Close()
-				}
-			}(client, broadcast.Data)
-		}
-		wg.Wait()
+		processBroadcast(broadcast)
 	}
+}
+
+// processBroadcast 处理单个广播消息
+func processBroadcast(broadcast *BroadcastMessage) {
+	chatRoom, exists := getChatRoom(broadcast.ChatID)
+	if !exists {
+		return
+	}
+
+	// 向聊天室中的所有客户端广播消息
+	chatRoom.mu.RLock()
+	defer chatRoom.mu.RUnlock()
+
+	var wg sync.WaitGroup
+	for _, client := range chatRoom.Clients {
+		wg.Add(1)
+		go func(c *Client, data interface{}) {
+			defer wg.Done()
+			select {
+			case c.Send <- &WSMessage{
+				Type:      broadcast.Type,
+				ChatID:    broadcast.ChatID,
+				Data:      data,
+				Timestamp: time.Now().Unix(),
+			}:
+			default:
+				// 发送队列满了，断开连接
+				log.Printf("Client %s send queue is full, closing connection", c.ID)
+				c.Connection.Close()
+			}
+		}(client, broadcast.Data)
+	}
+	wg.Wait()
 }
 
 // getOrCreateChatRoom 获取或创建聊天室
@@ -451,47 +481,6 @@ func subscribeToRedis() {
 		case broadcastQueue <- &broadcast:
 		default:
 		}
-	}
-}
-
-// heartbeatChecker 心跳检测
-func heartbeatChecker() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		clientsMutex.RLock()
-		//		now := time.Now()
-
-		for userID, client := range clients {
-			// 检查连接是否仍然活跃
-			if err := client.Connection.WriteMessage(websocket.PingMessage, nil); err != nil {
-				// 连接已断开，清理客户端
-				log.Printf("Removing dead client: %s", userID)
-
-				// 从所有聊天室移除
-				client.mu.Lock()
-				for chatID := range client.ChatRooms {
-					if room, exists := getChatRoom(chatID); exists {
-						room.mu.Lock()
-						delete(room.Clients, userID)
-						room.mu.Unlock()
-					}
-				}
-				client.mu.Unlock()
-
-				// 从客户端列表移除
-				delete(clients, userID)
-
-				// 更新Redis在线状态
-				if config.RedisClient != nil {
-					config.RedisClient.Del(redisCtx, "online:"+userID)
-					config.RedisClient.SRem(redisCtx, "online:users", userID)
-				}
-			}
-		}
-
-		clientsMutex.RUnlock()
 	}
 }
 

@@ -1,7 +1,11 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import { toast } from 'react-hot-toast';
 
+// 优先使用环境变量，如果没有则回退到默认值
+// 注意：在生产环境中，必须正确设置环境变量，否则会连接到localhost导致失败
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
 
+// 创建axios实例
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE,
   timeout: 10000,
@@ -31,7 +35,8 @@ apiClient.interceptors.response.use(
       if (code === 20000) {
         return data;
       }
-      throw new Error(message || '请求失败');
+      // 业务逻辑错误
+      return Promise.reject(new Error(message || '请求失败'));
     }
     
     // 如果没有 code 字段，假设直接返回数据 (Standard REST style)
@@ -40,8 +45,17 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     
-    // 如果是 401 且未重试过
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // 网络错误或超时
+    if (!error.response) {
+      console.error('Network Error:', error);
+      // 可以触发全局提示，如 toast.error("网络连接失败")
+      return Promise.reject(new Error('网络连接失败，请检查您的网络设置'));
+    }
+
+    const status = error.response.status;
+
+    // 处理 401 Unauthorized (Token过期)
+    if (status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
         const newToken = await refreshToken();
@@ -56,14 +70,38 @@ apiClient.interceptors.response.use(
       }
     }
     
-    console.error('API Error:', error.response?.data || error.message);
-    return Promise.reject(error);
+    // 处理 403 Forbidden
+    if (status === 403) {
+      return Promise.reject(new Error('您没有权限执行此操作'));
+    }
+
+    // 处理 404 Not Found
+    if (status === 404) {
+      return Promise.reject(new Error('请求的资源不存在'));
+    }
+
+    // 处理 429 Too Many Requests
+    if (status === 429) {
+      return Promise.reject(new Error('请求过于频繁，请稍后再试'));
+    }
+
+    // 处理 500 Internal Server Error
+    if (status >= 500) {
+      return Promise.reject(new Error('服务器内部错误，请联系客服'));
+    }
+    
+    // 其他错误，返回后端给出的错误信息
+    const errorMessage = error.response?.data?.message || error.message || '未知错误';
+    console.error('API Error:', errorMessage);
+    toast.error(errorMessage);
+    return Promise.reject(new Error(errorMessage));
   }
 );
 
 // Token刷新
 async function refreshToken(): Promise<string> {
   try {
+    // 使用新的axios实例以避免拦截器死循环
     const response = await axios.post(`${API_BASE}/api/auth/refresh`, {}, {
       headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` }
     });
@@ -112,10 +150,7 @@ export const bookApi = {
 // 用户API
 export const userApi = {
   getProfile: () => 
-    apiClient.get('/api/users/profile'), // Note: this maps to GetUserProfile in backend? No, backend route is PUT /profile. Wait, GET /profile is usually get current user. Backend has GetMyProfile but route might be distinct. Let's check routes.
-  // Actually, looking at backend controller, GetMyProfile is usually bound to GET /api/users/me or similar. I'll stick to generic getProfile for now and verify route later.
-  // Correction: backend controller has GetMyProfile but no route mapping was shown in file list, just controller methods. Assuming standard /api/users/me or /api/users/profile. 
-  // Let's assume GET /api/users/me based on typical REST.
+    apiClient.get('/api/users/profile'), 
   getMyProfile: () => apiClient.get('/api/users/me'),
   
   updateProfile: (data: any) => 

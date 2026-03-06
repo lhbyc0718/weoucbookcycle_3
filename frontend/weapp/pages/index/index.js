@@ -14,7 +14,8 @@ Page({
       { id: 'Non-Textbook', label: 'Non-textbook', icon: '☕', color: 'green' },
       { id: 'New Book', label: 'New', icon: '✨', color: 'purple' },
       { id: 'QR Code', label: 'QR Code', icon: '📱', color: 'slate' }
-    ]
+    ],
+    loading: false
   },
 
   onLoad: function() {
@@ -35,103 +36,40 @@ Page({
 
   loadBooks: function() {
     const that = this;
-    if (wx.cloud && wx.cloud.database) {
-      const db = wx.cloud.database();
-      db.collection('books').get().then(r => {
-        let books = r.data || [];
-        // merge locally published books that may not yet be synced
-        const local = wx.getStorageSync('myBooks') || [];
-        if (local.length) {
-          books = local.concat(books);
+    this.setData({ loading: true });
+
+    // Unified data source: Self-hosted Server
+    wx.request({
+      url: app.globalData.apiBase + '/api/books', // Endpoint for fetching books
+      method: 'GET',
+      success: function(res) {
+        let books = [];
+        if (res.data && Array.isArray(res.data)) {
+            books = res.data;
+        } else if (res.data && res.data.data && Array.isArray(res.data.data)) {
+            books = res.data.data;
+        } else if (res.data && res.data.books && Array.isArray(res.data.books)) {
+            books = res.data.books;
         }
-        that.setData({ books: books, filteredBooks: books });
-      }).catch(() => {
-        // fallback to earlier behavior
-        let books = that.getMockBooks();
-        const local = wx.getStorageSync('myBooks') || [];
-        if (local.length) {
-          books = local.concat(books);
-        }
-        that.setData({ books: books, filteredBooks: books });
-      });
-    } else {
-      // non-cloud fallback
-      wx.request({
-        url: app.globalData.apiBase + '/api/init',
-        success: function(res) {
-          let books = res.data.books || [];
-          const local = wx.getStorageSync('myBooks') || [];
-          if (local.length) {
-            books = local.concat(books);
-          }
-          that.setData({ books: books, filteredBooks: books });
-        },
-        fail: function() {
-          let books = that.getMockBooks();
-          const local = wx.getStorageSync('myBooks') || [];
-          if (local.length) {
-            books = local.concat(books);
-          }
-          that.setData({ books: books, filteredBooks: books });
-        }
-      });
-    }
+        
+        that.setData({ 
+            books: books, 
+            filteredBooks: books,
+            loading: false
+        });
+      },
+      fail: function(err) {
+        console.error('Failed to load books:', err);
+        wx.showToast({
+            title: '加载失败',
+            icon: 'none'
+        });
+        that.setData({ loading: false });
+      }
+    });
   },
 
-  getMockBooks: function() {
-    return [
-      {
-        id: '1',
-        title: 'The Great Gatsby (Hardcover)',
-        author: 'F. Scott Fitzgerald',
-        cover: 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400&h=600&fit=crop',
-        price: 25,
-        condition: '98% New',
-        category: 'Literature',
-        tags: ['Classic', 'Fiction']
-      },
-      {
-        id: '2',
-        title: 'The Design of Everyday Things',
-        author: 'Don Norman',
-        cover: 'https://images.unsplash.com/photo-1589829085413-56de8ae18c73?w=400&h=600&fit=crop',
-        price: 45,
-        condition: 'Like New',
-        category: 'Design',
-        tags: ['UX', 'Design', 'Textbook']
-      },
-      {
-        id: '3',
-        title: 'Sapiens: A Brief History',
-        author: 'Yuval Noah Harari',
-        cover: 'https://images.unsplash.com/photo-1541963463532-d68292c34b19?w=400&h=600&fit=crop',
-        price: 35,
-        condition: 'New',
-        category: 'History',
-        tags: ['History', 'Bestseller']
-      },
-      {
-        id: '4',
-        title: 'Clean Code',
-        author: 'Robert C. Martin',
-        cover: 'https://images.unsplash.com/photo-1532012197267-da84d127e765?w=400&h=600&fit=crop',
-        price: 55,
-        condition: '99% New',
-        category: 'Tech',
-        tags: ['Programming', 'Computer Science']
-      },
-      {
-        id: '5',
-        title: 'Atomic Design Systems',
-        author: 'Brad Frost',
-        cover: 'https://images.unsplash.com/photo-1505330622279-bf7d7fc918f4?w=400&h=600&fit=crop',
-        price: 42,
-        condition: '92% New',
-        category: 'Design',
-        tags: ['Design', 'System']
-      }
-    ];
-  },
+  // Removed getMockBooks
 
   onSearchInput: function(e) {
     const query = e.detail.value;

@@ -4,11 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9" // 使用最新的 go-redis/v9
 )
 
@@ -83,114 +80,11 @@ func GetServerConfig() *ServerConfig {
 	}
 }
 
-// SetupRouter 设置路由
-func SetupRouter() *gin.Engine {
-	serverConfig := GetServerConfig()
-
-	// 根据环境设置Gin模式
-	gin.SetMode(serverConfig.Mode)
-
-	// 创建Gin实例
-	r := gin.New()
-
-	// 全局中间件
-	r.Use(gin.Recovery()) // 恢复panic
-	r.Use(gin.Logger())   // 日志记录
-
-	// CORS配置（可以通过环境变量 DISABLE_CORS=true 关闭，ALLOW_ORIGINS 指定允许的域列表）
-	if GetEnv("DISABLE_CORS", "false") != "true" {
-		// origins 用逗号分隔列表，空值或"*"表示允许所有
-		allowList := GetEnv("ALLOW_ORIGINS", "http://localhost:3000,http://localhost:5173,http://localhost:4173")
-		origins := []string{}
-		if allowList == "*" || allowList == "" {
-			origins = []string{"*"}
-		} else {
-			for _, o := range strings.Split(allowList, ",") {
-				origins = append(origins, strings.TrimSpace(o))
-			}
-		}
-		r.Use(cors.New(cors.Config{
-			AllowOrigins:     origins,
-			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Requested-With"},
-			ExposeHeaders:    []string{"Content-Length", "Content-Type"},
-			AllowCredentials: true,
-			MaxAge:           12 * time.Hour,
-		}))
-	} else {
-		log.Println("⚠️  CORS middleware disabled (DISABLE_CORS=true)")
-	}
-
-	// 打印当前环境（API 环境）以便排查
-	apiEnv := GetEnv("API_ENV", "development")
-	log.Printf("API_ENV=%s, GIN_MODE=%s", apiEnv, serverConfig.Mode)
-
-	// 可选：如果后端也需要托管 Web 前端（默认false），可以通过环境变量开启
-	if GetEnv("SERVE_WEB", "false") == "true" {
-		webPath := GetEnv("WEB_DIST_PATH", "../frontend/web/dist")
-		log.Printf("Serving static web files from %s", webPath)
-		r.StaticFS("/", gin.Dir(webPath, false))
-	}
-
-	// 健康检查端点（包括数据库和Redis状态）
-	r.GET("/health", func(c *gin.Context) {
-		health := gin.H{
-			"status":  "ok",
-			"message": "Server is running",
-		}
-
-		// 检查数据库状态
-		if DB != nil {
-			sqlDB, err := DB.DB()
-			if err == nil {
-				if err := sqlDB.Ping(); err == nil {
-					health["database"] = "connected"
-				} else {
-					health["database"] = "disconnected"
-				}
-			} else {
-				health["database"] = "error"
-			}
-		} else {
-			health["database"] = "not initialized"
-		}
-
-		// 检查Redis状态
-		if RedisClient != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			if err := RedisClient.Ping(ctx).Err(); err == nil {
-				health["redis"] = "connected"
-			} else {
-				health["redis"] = "disconnected"
-			}
-		} else {
-			health["redis"] = "not initialized"
-		}
-
-		c.JSON(200, health)
-	})
-
-	// // API版本分组
-	// v1 := r.Group("/api/v1")
-	// {
-	// 	// 路由注册在 routes/routes.go 中处理
-	// 	// 这里留空，保持结构清晰
-	// }
-
-	return r
-}
-
 // StartServer 已弃用，请在 main.go 中进行资源初始化
 // 保留该函数以兼容旧版本调用
 func StartServer() error {
 	log.Println("⚠️  警告: StartServer() 已弃用，请在 main.go 初始化资源。")
 	return nil
-}
-
-// GetServer 获取Gin实例（用于测试）
-func GetServer() *gin.Engine {
-	return SetupRouter()
 }
 
 // GetRedisClient 获取Redis客户端实例（供其他包使用）

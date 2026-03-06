@@ -361,7 +361,7 @@ func (as *AuthService) Login(req *LoginRequest, clientIP, userAgent string) (*mo
 // code 由前端 wx.login 获取并发送到后台
 // 服务端调用微信接口换取 openid, session_key
 // 如果用户已存在则返回该用户，否则自动创建
-func (as *AuthService) WeChatLogin(code, clientIP string) (*models.User, string, error) {
+func (as *AuthService) WeChatLogin(code, avatar, nickname, clientIP string) (*models.User, string, error) {
 	if code == "" {
 		return nil, "", errors.New("code为空")
 	}
@@ -402,12 +402,30 @@ func (as *AuthService) WeChatLogin(code, clientIP string) (*models.User, string,
 	if err := config.DB.Where("we_chat_open_id = ?", data.OpenID).First(&user).Error; err != nil {
 		// 用户不存在则创建
 		user = models.User{
-			Username:     "wx_" + data.OpenID[:8],
+			Username:     nickname,
 			WeChatOpenID: data.OpenID,
+			Avatar:       avatar,
 			Status:       1,
+		}
+		if user.Username == "" {
+			user.Username = "wx_" + data.OpenID[:8]
 		}
 		if err := config.DB.Create(&user).Error; err != nil {
 			return nil, "", fmt.Errorf("创建微信用户失败: %w", err)
+		}
+	} else {
+		// 用户存在，更新信息
+		updates := map[string]interface{}{}
+		if avatar != "" && user.Avatar != avatar {
+			updates["avatar"] = avatar
+		}
+		if nickname != "" && user.Username != nickname && user.Username[:3] == "wx_" {
+			// 仅当用户名还是默认格式时更新，或者强制更新？通常不强制改名，只更新头像
+			// 这里假设只更新头像，或者如果用户还没改过名
+			updates["username"] = nickname
+		}
+		if len(updates) > 0 {
+			config.DB.Model(&user).Updates(updates)
 		}
 	}
 

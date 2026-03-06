@@ -3,14 +3,11 @@ const app = getApp();
 
 Page({
   data: {
+    isLoggedIn: false,
     user: {
-      id: '',
-      name: '',
+      username: 'Guest',
       avatar: '',
-      rank: '',
-      ratingCount: 0,
-      sales: 0,
-      trustScore: 0
+      trust_score: 0
     }
   },
 
@@ -19,99 +16,75 @@ Page({
   },
 
   onShow: function() {
-    // 每次显示时刷新用户数据
     this.loadUserData();
   },
 
   loadUserData: function() {
-    const that = this;
-    const localUser = wx.getStorageSync('userInfo');
-
-    // default profile values
-    const defaultUser = {
-      id: 'me',
-      name: 'BookLover_99',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop',
-      rank: 'Gold Trader',
-      ratingCount: 12,
-      sales: 42,
-      trustScore: 100
-    };
-
-    // if we have a logged in user, try to fetch cloud record
-    if (that.globalData && that.globalData.userInfo && that.globalData.userInfo.id) {
-      wx.cloud.database().collection('users')
-        .doc(that.globalData.userInfo.id)
-        .get()
-        .then(res => {
-          const cloudUser = res.data || {};
-          const merged = { ...defaultUser, ...cloudUser };
-          that.setData({ user: merged });
-          wx.setStorageSync('userInfo', merged);
-        })
-        .catch(() => {
-          // failed to fetch cloud user, fall back to local
-          if (localUser) {
-            that.setData({ user: { ...defaultUser, ...localUser } });
-          } else {
-            that.setData({ user: defaultUser });
-          }
-        });
+    if (app.globalData.userInfo) {
+      this.setData({
+        isLoggedIn: true,
+        user: app.globalData.userInfo
+      });
     } else {
-      // no login yet, fallback to local storage or default
-      if (localUser) {
-        that.setData({ user: { ...defaultUser, ...localUser } });
-      } else {
-        that.setData({ user: defaultUser });
-      }
+      this.setData({
+        isLoggedIn: false,
+        user: {
+          username: 'Guest',
+          avatar: '', // Default avatar placeholder
+          trust_score: 0
+        }
+      });
     }
   },
 
+  onLoginTap: function() {
+    // 推荐使用wx.getUserProfile获取用户信息
+    wx.getUserProfile({
+      desc: '用于完善会员资料', // 声明获取用户个人信息后的用途，后续会展示在弹窗中
+      success: (res) => {
+        app.login(res.userInfo, (user) => {
+          this.setData({
+            isLoggedIn: true,
+            user: user
+          });
+          wx.showToast({
+            title: '登录成功',
+            icon: 'success'
+          });
+        });
+      },
+      fail: (err) => {
+        console.error(err);
+        wx.showToast({
+            title: '需要授权才能登录',
+            icon: 'none'
+        });
+      }
+    });
+  },
+
+  onLogoutTap: function() {
+    app.globalData.userInfo = null;
+    app.globalData.token = null;
+    wx.removeStorageSync('userInfo');
+    wx.removeStorageSync('token');
+    this.setData({
+        isLoggedIn: false,
+        user: { username: 'Guest', avatar: '', trust_score: 0 }
+    });
+  },
+
   onMyListings: function() {
+    if (!this.data.isLoggedIn) return this.onLoginTap();
     wx.navigateTo({
       url: '/pages/mylistings/mylistings'
     });
   },
 
   onWishlist: function() {
-    // Navigate to wishlist page which shows saved books
+    if (!this.data.isLoggedIn) return this.onLoginTap();
     wx.navigateTo({
       url: '/pages/wishlist/wishlist'
-    });
-  },
-
-  onAvatarTap: function() {
-    const that = this;
-    wx.chooseImage({
-      count: 1,
-      sizeType: ['original', 'compressed'],
-      sourceType: ['album', 'camera'],
-      success(res) {
-        const tempPath = res.tempFilePaths[0];
-        // update data & storage
-        const updatedUser = { ...that.data.user, avatar: tempPath };
-        that.setData({ user: updatedUser });
-        wx.setStorageSync('userInfo', updatedUser);
-
-        // also update cloud record if logged in
-        if (that.globalData && that.globalData.userInfo && that.globalData.userInfo.id) {
-          wx.cloud.database().collection('users')
-            .doc(that.globalData.userInfo.id)
-            .update({ data: { avatar: tempPath } })
-            .catch(() => {
-              // ignore failure, local state still updated
-            });
-        }
-
-        wx.showToast({
-          title: '头像已更新',
-          icon: 'success',
-          duration: 1500
-        });
-      },
-      fail() {
-        wx.showToast({ title: '更新失败', icon: 'none' });
-      }
     });
   }
 });
