@@ -267,7 +267,7 @@ export default function UserProfile() {
                               </div>
                               <div className="flex justify-between items-end">
                                 <span className="text-red-500 font-bold">¥{book.price}</span>
-                                <button className="text-gray-400 hover:text-red-500 transition-colors">
+                                <button aria-label="收藏" className="text-gray-400 hover:text-red-500 transition-colors">
                                   <HiHeart className="text-xl text-red-500" />
                                 </button>
                               </div>

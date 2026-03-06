@@ -12,19 +12,32 @@ class WebSocketService {
 
   init(url) {
     this.url = url;
-    this.connect();
+    // 如果已有token，尝试连接；否则等待登录后再连接
+    const token = wx.getStorageSync('token');
+    if (token) {
+        this.connect();
+    }
   }
 
   connect() {
     if (this.socketOpen) return;
     
+    const token = wx.getStorageSync('token');
+    if (!token) {
+        console.log('WebSocket: No token, skipping connection');
+        return;
+    }
+
     // Close existing task if any (e.g. pending connecting)
     if (this.socketTask) {
         // this.socketTask.close(); 
     }
 
+    const wsUrl = `${this.url}?token=${token}`;
+    console.log('Connecting to WebSocket:', wsUrl);
+
     this.socketTask = wx.connectSocket({
-      url: this.url,
+      url: wsUrl,
       success: () => console.log('WebSocket connecting...')
     });
 

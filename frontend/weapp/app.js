@@ -8,9 +8,17 @@ App({
     // 检查登录状态
     this.checkLoginStatus();
 
-    // 初始化 WebSocket
-    const wsUrl = this.globalData.apiBase.replace('http', 'ws') + '/ws';
-    websocketService.init(wsUrl);
+    // 初始化 WebSocket URL，但不立即连接，等待 checkLoginStatus 获取到 token
+    // 或者在 login 成功后连接
+    const wsProtocol = this.globalData.apiBase.startsWith('https') ? 'wss' : 'ws';
+    const wsUrl = this.globalData.apiBase.replace(/^http(s)?:\/\//, wsProtocol + '://') + '/ws';
+    
+    if (this.globalData.token) {
+        websocketService.init(wsUrl);
+    } else {
+        // 保存 URL 供登录后使用
+        this.globalData.wsUrl = wsUrl;
+    }
   },
 
   checkLoginStatus: function() {
@@ -43,6 +51,16 @@ App({
                 that.globalData.userInfo = user;
                 wx.setStorageSync('token', token);
                 wx.setStorageSync('userInfo', user);
+                
+                // 登录成功后连接 WebSocket
+                if (that.globalData.wsUrl) {
+                    websocketService.init(that.globalData.wsUrl);
+                } else {
+                    const wsProtocol = that.globalData.apiBase.startsWith('https') ? 'wss' : 'ws';
+                    const wsUrl = that.globalData.apiBase.replace(/^http(s)?:\/\//, wsProtocol + '://') + '/ws';
+                    websocketService.init(wsUrl);
+                }
+
                 if (callback) callback(user);
               } else {
                 wx.showToast({

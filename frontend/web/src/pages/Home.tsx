@@ -51,16 +51,21 @@ export default function Home() {
     <div className="pb-20 md:pb-0">
       {/* Mobile Search Header (Hidden on Desktop) */}
       <div className="sticky top-0 z-30 bg-white px-4 py-3 shadow-sm md:hidden">
-        <div className="relative" onClick={() => navigate('/market')}>
+        <div 
+          className="relative cursor-pointer" 
+          onClick={() => navigate('/market')}
+          role="button"
+          tabIndex={0}
+          aria-label="前往搜索页"
+        >
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <HiSearch className="text-gray-400 text-lg" />
           </div>
-          <input
-            type="text"
-            readOnly
-            className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-full leading-5 bg-gray-100 text-gray-900 placeholder-gray-500 focus:outline-none focus:bg-white focus:border-blue-300 transition duration-150 ease-in-out sm:text-sm"
-            placeholder="搜索书籍、作者、ISBN..."
-          />
+          <div
+            className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-full leading-5 bg-gray-100 text-gray-500 transition duration-150 ease-in-out sm:text-sm"
+          >
+            搜索书籍、作者、ISBN...
+          </div>
         </div>
       </div>
 

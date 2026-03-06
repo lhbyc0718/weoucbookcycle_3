@@ -17,10 +17,10 @@ type ListingController struct {
 	redisClient *redis.Client
 }
 
-// NewListingController 创建发布控制器实例
+// NewListingController 创建列表控制器实例
 func NewListingController() *ListingController {
 	return &ListingController{
-		redisClient: initRedis(),
+		redisClient: config.GetRedisClient(),
 	}
 }
 

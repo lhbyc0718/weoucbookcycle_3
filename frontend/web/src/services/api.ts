@@ -17,6 +17,7 @@ const apiClient: AxiosInstance = axios.create({
 // 请求拦截器 - 添加Token
 apiClient.interceptors.request.use(
   (config) => {
+    // 优先从 localStorage 获取 (兼容现有逻辑)，同时也支持 HttpOnly Cookie (浏览器自动携带)
     const token = localStorage.getItem('authToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -93,7 +94,13 @@ apiClient.interceptors.response.use(
     // 其他错误，返回后端给出的错误信息
     const errorMessage = error.response?.data?.message || error.message || '未知错误';
     console.error('API Error:', errorMessage);
-    toast.error(errorMessage);
+    
+    // 使用 react-hot-toast 显示错误提示
+    // 注意：如果是 401 刷新 token 失败导致的跳转，通常不需要提示，避免打断用户体验
+    if (status !== 401) {
+        toast.error(errorMessage);
+    }
+    
     return Promise.reject(new Error(errorMessage));
   }
 );
@@ -171,10 +178,12 @@ export const chatApi = {
     apiClient.get('/api/chats'),
   getChat: (id: string) => 
     apiClient.get(`/api/chats/${id}`),
+  getMessages: (chatId: string) =>
+    apiClient.get(`/api/chats/${chatId}/messages`),
   sendMessage: (chatId: string, data: any) => 
     apiClient.post(`/api/chats/${chatId}/messages`, data),
-  getMessages: (chatId: string) => 
-    apiClient.get(`/api/chats/${chatId}/messages`),
+  createChat: (data: { user_id: string }) => 
+    apiClient.post('/api/chats', data),
 };
 
 // 列表API

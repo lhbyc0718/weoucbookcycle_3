@@ -57,3 +57,5 @@ coverage/
 .git
 
 .github/
+
+*.trae/

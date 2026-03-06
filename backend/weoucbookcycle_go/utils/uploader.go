@@ -418,3 +418,12 @@ func (fu *FileUploader) CleanupOldFiles(days int) error {
 	log.Printf("Cleaned up %d old files (older than %d days)", deletedCount, days)
 	return err
 }
+
+func randomString(n int) string {
+	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[time.Now().UnixNano()%int64(len(letterBytes))]
+	}
+	return string(b)
+}

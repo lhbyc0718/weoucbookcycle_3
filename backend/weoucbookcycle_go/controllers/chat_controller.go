@@ -7,9 +7,12 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"fmt"
 	"weoucbookcycle_go/config"
 	"weoucbookcycle_go/models"
 	"weoucbookcycle_go/services"
+	"weoucbookcycle_go/utils"
+	ws "weoucbookcycle_go/websocket"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -39,8 +42,8 @@ type MessageTask struct {
 // NewChatController 创建聊天控制器实例
 func NewChatController() *ChatController {
 	cc := &ChatController{
-		redisClient:  initRedis(),
-		upgrader:     websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
+		redisClient:  config.GetRedisClient(),
+		upgrader:     websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}, // 这里可以保留或统一修改
 		clients:      make(map[string]*websocket.Conn),
 		messageQueue: make(chan MessageTask, 1000),
 	}
@@ -86,16 +89,30 @@ func (cc *ChatController) processMessage(task MessageTask) error {
 		return err
 	}
 
+	// 广播消息到聊天室
+	// 构造前端需要的消息格式
+	wsMsg := ws.WSMessage{
+		Type:      "message",
+		ChatID:    message.ChatID,
+		Content:   message.Content,
+		Timestamp: message.CreatedAt.Unix(),
+		From:      message.SenderID,
+		Data:      message, // 包含完整消息数据
+	}
+	
+	if err := ws.BroadcastToChat(message.ChatID, "message", wsMsg); err != nil {
+		fmt.Printf("Failed to broadcast message: %v\n", err)
+	}
+
+	// 增加未读计数 (Redis)
 	// 获取聊天参与者
 	var chatUsers []models.ChatUser
 	config.DB.Where("chat_id = ?", task.ChatID).Find(&chatUsers)
-
-	// 推送消息给在线用户（使用goroutine并发推送）
+	
 	for _, chatUser := range chatUsers {
 		if chatUser.UserID != task.UserID {
-			go func(receiverID string) {
-				cc.sendMessageToUser(receiverID, message)
-			}(chatUser.UserID)
+			cc.redisClient.Incr(ctx, "unread:"+chatUser.UserID+":"+message.ChatID)
+			cc.redisClient.Expire(ctx, "unread:"+chatUser.UserID+":"+message.ChatID, time.Hour*24*7)
 		}
 	}
 
@@ -145,7 +162,7 @@ func (cc *ChatController) heartbeatCheck() {
 // @Produce json
 // @Security Bearer
 // @Success 200 {array} ChatResponse
-// @Router /api/v1/chats [get]
+// @Router /api/v1/chats [get]// GetChats 获取聊天列表
 func (cc *ChatController) GetChats(c *gin.Context) {
 	userID := c.GetString("user_id")
 
@@ -234,7 +251,7 @@ func (cc *ChatController) GetChats(c *gin.Context) {
 // @Success 200 {object} models.Chat
 // @Router /api/v1/chats/{id} [get]
 func (cc *ChatController) GetChat(c *gin.Context) {
-	userID := c.GetString("user_id")
+	userID := c.GetString("userID")
 	chatID := c.Param("id")
 
 	// 检查用户是否有权限访问该聊天
@@ -276,83 +293,96 @@ func (cc *ChatController) GetChat(c *gin.Context) {
 	c.JSON(http.StatusOK, chat)
 }
 
-// CreateChat 创建新聊天
-// @Summary 创建新聊天
-// @Description 创建新的聊天会话
-// @Tags chats
-// @Accept json
-// @Produce json
-// @Security Bearer
-// @Param request body map[string]interface{} true "聊天信息" example='{"user_id":"target-user-id"}'
-// @Success 201 {object} models.Chat
-// @Router /api/v1/chats [post]
+// CreateChat 创建聊天室
 func (cc *ChatController) CreateChat(c *gin.Context) {
-	userID := c.GetString("user_id")
-
 	var req struct {
 		UserID string `json:"user_id" binding:"required"`
 	}
+
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.Error(c, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	currentUserID := c.GetString("user_id")
+	if currentUserID == "" {
+		utils.Unauthorized(c, "")
 		return
 	}
 
 	// 检查目标用户是否存在
 	var targetUser models.User
 	if err := config.DB.First(&targetUser, "id = ?", req.UserID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Target user not found"})
+		utils.NotFound(c, "Target user not found")
 		return
 	}
 
-	// 检查是否已经存在这两个用户的聊天
-	var existingChat models.Chat
-	var existingChatUser models.ChatUser
+	// 检查是否已经存在聊天室
+	// 这里简化处理，实际应该查询两个用户是否已有共同的私聊Chat
+	// 假设ChatUser表关联了Chat和User
+	// 查找同时包含这两个用户的ChatID
+	
+	/*
+	SELECT c.id FROM chats c
+	JOIN chat_users cu1 ON c.id = cu1.chat_id AND cu1.user_id = ?
+	JOIN chat_users cu2 ON c.id = cu2.chat_id AND cu2.user_id = ?
+	LIMIT 1
+	*/
+	
+	var existingChatID string
+	err := config.DB.Raw(`
+		SELECT c.id FROM chats c
+		JOIN chat_users cu1 ON c.id = cu1.chat_id AND cu1.user_id = ?
+		JOIN chat_users cu2 ON c.id = cu2.chat_id AND cu2.user_id = ?
+		LIMIT 1
+	`, currentUserID, req.UserID).Scan(&existingChatID).Error
 
-	err := config.DB.
-		Joins("JOIN chat_users ON chat_users.chat_id = chats.id").
-		Where("chat_users.user_id = ?", userID).
-		First(&existingChat).Error
-
-	if err == nil {
-		// 检查是否也包含目标用户
-		err = config.DB.
-			Where("chat_id = ? AND user_id = ?", existingChat.ID, req.UserID).
-			First(&existingChatUser).Error
-
-		if err == nil {
-			// 聊天已存在，返回现有聊天
-			c.JSON(http.StatusOK, existingChat)
-			return
-		}
-	}
-
-	// 创建新聊天
-	chat := models.Chat{}
-
-	if err := config.DB.Create(&chat).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create chat"})
+	if err == nil && existingChatID != "" {
+		// 如果已存在，直接返回该聊天室信息
+		var chat models.Chat
+		config.DB.Preload("Participants").First(&chat, "id = ?", existingChatID)
+		utils.Success(c, chat)
 		return
 	}
 
-	// 添加聊天用户（使用goroutine并发插入）
-	var wg sync.WaitGroup
-	users := []string{userID, req.UserID}
-
-	for _, uid := range users {
-		wg.Add(1)
-		go func(id string) {
-			defer wg.Done()
-			chatUser := models.ChatUser{
-				ChatID:      chat.ID,
-				UserID:      id,
-				UnreadCount: 0,
-			}
-			config.DB.Create(&chatUser)
-		}(uid)
+	// 创建新聊天室
+	chat := models.Chat{
+		ID:        utils.GenerateUUID(), // 假设有这个工具函数，或者GORM hook生成
+		// Type:      "private", // 默认为私聊 (模型中暂无此字段)
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
-	wg.Wait()
+	
+	if chat.ID == "" {
+		// 如果没有自动生成，手动生成一个简单的ID (生产环境应使用UUID库)
+		chat.ID = fmt.Sprintf("%d", time.Now().UnixNano())
+	}
 
-	c.JSON(http.StatusCreated, chat)
+	tx := config.DB.Begin()
+	if err := tx.Create(&chat).Error; err != nil {
+		tx.Rollback()
+		utils.InternalError(c, "Failed to create chat")
+		return
+	}
+
+	// 添加参与者
+	participants := []models.ChatUser{
+		{ChatID: chat.ID, UserID: currentUserID, CreatedAt: time.Now()},
+		{ChatID: chat.ID, UserID: req.UserID, CreatedAt: time.Now()},
+	}
+
+	if err := tx.Create(&participants).Error; err != nil {
+		tx.Rollback()
+		utils.InternalError(c, "Failed to add participants")
+		return
+	}
+
+	tx.Commit()
+
+	// 重新加载带参与者信息的Chat
+	config.DB.Preload("Participants").First(&chat, "id = ?", chat.ID)
+	
+	utils.Success(c, chat)
 }
 
 // GetMessages 获取聊天消息

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 	"weoucbookcycle_go/config"
@@ -21,11 +22,32 @@ var (
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin: func(r *http.Request) bool {
-			// In production, you should verify the origin
-			// For example:
-			// origin := r.Header.Get("Origin")
-			// return origin == "https://your-domain.com"
-			return true // Still allowing all for dev, but marked as TODO for user to change
+			// Get allowed origins from environment or config
+			allowedOrigins := config.GetEnv("ALLOW_ORIGINS", "*")
+
+			// 如果配置为*，允许所有
+			if allowedOrigins == "*" {
+				return true
+			}
+
+			// 开发环境自动允许localhost
+			if config.GetEnv("GIN_MODE", "debug") != "release" {
+				return true
+			}
+
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true // Allow non-browser clients
+			}
+
+			// 校验是否在允许列表中（逗号分隔）
+			for _, allowed := range strings.Split(allowedOrigins, ",") {
+				a := strings.TrimSpace(allowed)
+				if a == origin {
+					return true
+				}
+			}
+			return false
 		},
 	}
 
@@ -94,9 +116,33 @@ func InitWebSocket() error {
 
 // HandleConnection 处理WebSocket连接
 func HandleConnection(c *gin.Context) {
-	userID := c.Query("user_id")
+	token := c.Query("token")
+	// Web 端可通过 HttpOnly Cookie 自动携带，这里做兜底读取
+	if token == "" {
+		if cookieToken, err := c.Cookie("jwt_token"); err == nil {
+			token = cookieToken
+		}
+	}
+	var userID string
+
+	// 如果提供了token，验证token获取userID
+	if token != "" {
+		jwtService := config.GetJWTService()
+		claims, err := jwtService.ValidateToken(token)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			return
+		}
+		userID = claims.UserID
+	} else {
+		// 兼容旧逻辑（如果允许非认证连接），或直接报错
+		// 这里为了安全，强制要求token
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Token is required"})
+		return
+	}
+
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found in token"})
 		return
 	}
 
@@ -417,13 +463,23 @@ func processBroadcast(broadcast *BroadcastMessage) {
 		wg.Add(1)
 		go func(c *Client, data interface{}) {
 			defer wg.Done()
+
+			var msg *WSMessage
+			if wsMsg, ok := data.(WSMessage); ok {
+				msg = &wsMsg
+			} else if wsMsgPtr, ok := data.(*WSMessage); ok {
+				msg = wsMsgPtr
+			} else {
+				msg = &WSMessage{
+					Type:      broadcast.Type,
+					ChatID:    broadcast.ChatID,
+					Data:      data,
+					Timestamp: time.Now().Unix(),
+				}
+			}
+
 			select {
-			case c.Send <- &WSMessage{
-				Type:      broadcast.Type,
-				ChatID:    broadcast.ChatID,
-				Data:      data,
-				Timestamp: time.Now().Unix(),
-			}:
+			case c.Send <- msg:
 			default:
 				// 发送队列满了，断开连接
 				log.Printf("Client %s send queue is full, closing connection", c.ID)
@@ -557,6 +613,34 @@ func BroadcastToAll(messageType string, data interface{}) error {
 		}(client)
 	}
 	wg.Wait()
+
+	return nil
+}
+
+// BroadcastToChat 广播消息给指定聊天室
+func BroadcastToChat(chatID string, messageType string, data interface{}) error {
+	// 构造广播消息
+	broadcastMessage := &BroadcastMessage{
+		Type:   messageType,
+		ChatID: chatID,
+		Data:   data,
+	}
+
+	// 放入广播队列
+	select {
+	case broadcastQueue <- broadcastMessage:
+		// 成功放入队列
+	default:
+		return fmt.Errorf("broadcast queue is full")
+	}
+
+	// 同时发布到Redis（用于多服务器同步）
+	if config.RedisClient != nil {
+		go func() {
+			payload, _ := json.Marshal(broadcastMessage)
+			config.RedisClient.Publish(redisCtx, "chat:broadcast", payload)
+		}()
+	}
 
 	return nil
 }

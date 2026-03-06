@@ -33,7 +33,7 @@ type BookStatUpdate struct {
 // NewBookController 创建书籍控制器实例
 func NewBookController() *BookController {
 	bc := &BookController{
-		redisClient: initRedis(),
+		redisClient: config.GetRedisClient(),
 		statsQueue:  make(chan BookStatUpdate, 1000), // 缓冲队列
 	}
 
@@ -43,14 +43,8 @@ func NewBookController() *BookController {
 	return bc
 }
 
-// initRedis 初始化Redis客户端
-func initRedis() *redis.Client {
-	return redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-	})
-}
+// initRedis 已废弃，使用 config.GetRedisClient()
+// func initRedis() *redis.Client { ... }
 
 // startStatsWorkers 启动统计更新worker池
 // 使用goroutine和channel实现异步统计更新

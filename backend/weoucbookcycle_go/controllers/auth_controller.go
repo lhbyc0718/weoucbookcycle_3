@@ -140,6 +140,9 @@ func (ac *AuthController) Login(c *gin.Context) {
 			"email_verified": user.EmailVerified,
 		},
 	})
+
+	// Set HttpOnly Cookie
+	c.SetCookie("jwt_token", token, 7200, "/", "", false, true)
 }
 
 // RefreshToken 刷新token

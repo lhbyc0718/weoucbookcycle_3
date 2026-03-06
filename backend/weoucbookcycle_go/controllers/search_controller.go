@@ -21,7 +21,7 @@ type SearchController struct {
 // NewSearchController 创建搜索控制器实例
 func NewSearchController() *SearchController {
 	return &SearchController{
-		redisClient: initRedis(),
+		redisClient: config.GetRedisClient(),
 	}
 }
 

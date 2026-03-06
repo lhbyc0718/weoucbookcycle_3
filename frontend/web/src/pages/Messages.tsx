@@ -80,6 +80,9 @@ export default function Messages() {
                 whileTap={{ scale: 0.98 }}
                 whileHover={{ scale: 1.01, boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)" }}
                 onClick={() => navigate(`/chats/${chat.id}`)}
+                role="button"
+                tabIndex={0}
+                aria-label={`进入与 ${chat.name} 的聊天`}
                 className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex gap-4 cursor-pointer relative overflow-hidden transition-all"
               >
                 <div className="relative">

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { HiArrowLeft, HiPaperAirplane } from 'react-icons/hi';
 import { chatApi, userApi } from '../services/api';
+import { wsService } from '../services/websocket';
 
 interface Message {
   id: string;
@@ -27,6 +28,35 @@ export default function ChatDetail() {
   useEffect(() => {
     initChat();
   }, [id, targetUserId]);
+
+  useEffect(() => {
+    const handleMessage = (data: any) => {
+      // 检查是否是当前会话的消息
+      if (data.chat_id === id) {
+        setMessages(prev => {
+            // 去重逻辑：检查是否已存在该ID的消息
+            if (prev.some(m => m.id === data.id)) {
+                return prev;
+            }
+            // 如果是自己发送的，且ID是临时的(不包含-或长度不同等特征)，可能需要替换
+            // 这里简单处理：直接追加，依靠ID去重
+            // 注意：后端返回的消息结构可能与前端Message接口不完全一致，需转换
+            const newMsg: Message = {
+                id: data.id || data._id || Date.now().toString(),
+                sender_id: data.from || data.sender_id,
+                content: data.content,
+                created_at: data.created_at || new Date(data.timestamp * 1000).toISOString()
+            };
+            return [...prev, newMsg];
+        });
+      }
+    };
+
+    wsService.subscribe('message', handleMessage);
+    return () => {
+      wsService.unsubscribe('message', handleMessage);
+    };
+  }, [id]);
 
   useEffect(() => {
     scrollToBottom();
@@ -85,15 +115,18 @@ export default function ChatDetail() {
     try {
       if (id && id !== 'new') {
         await chatApi.sendMessage(id, { content: newMessage });
-        setMessages([...messages, {
-          id: Date.now().toString(),
-          sender_id: currentUserId,
-          content: newMessage,
-          created_at: new Date().toISOString()
-        }]);
+        // 不再进行乐观更新，等待 WebSocket 推送，避免重复
         setNewMessage('');
       } else if (targetUserId) {
-         alert("暂不支持新建会话，请先在后端创建会话");
+         // Create new chat
+         const res = await chatApi.createChat({ user_id: targetUserId });
+         const newChat = (res as any).data || res;
+         
+         // Send first message
+         await chatApi.sendMessage(newChat.id, { content: newMessage });
+         
+         // Navigate to new chat
+         navigate(`/chats/${newChat.id}`, { replace: true });
       }
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -105,7 +138,7 @@ export default function ChatDetail() {
       <div className="flex-1 flex flex-col bg-white md:max-w-4xl md:mx-auto md:rounded-2xl md:shadow-lg md:border md:border-gray-200 overflow-hidden w-full">
         {/* Header */}
         <div className="bg-white px-4 py-3 shadow-sm flex items-center gap-3 z-10 border-b border-gray-100">
-          <button onClick={() => navigate(-1)} className="p-1 -ml-1 text-gray-600 hover:bg-gray-100 rounded-full transition-colors">
+          <button onClick={() => navigate(-1)} aria-label="返回" className="p-1 -ml-1 text-gray-600 hover:bg-gray-100 rounded-full transition-colors">
             <HiArrowLeft className="text-xl" />
           </button>
           <div className="flex items-center gap-3">
@@ -155,6 +188,7 @@ export default function ChatDetail() {
           <input
             type="text"
             value={newMessage}
+            aria-label="消息内容"
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
             placeholder="发送消息..."
@@ -163,6 +197,7 @@ export default function ChatDetail() {
           <button 
             onClick={handleSendMessage}
             disabled={!newMessage.trim()}
+            aria-label="发送消息"
             className="p-3 bg-blue-600 text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 active:scale-95 transition-all shadow-sm"
           >
             <HiPaperAirplane className="transform rotate-90 text-lg" />

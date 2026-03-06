@@ -114,11 +114,12 @@ export default function BookDetail() {
       <div className="fixed top-0 left-0 right-0 z-40 p-4 flex justify-between items-center pointer-events-none md:hidden">
         <button 
           onClick={() => navigate(-1)} 
+          aria-label="返回"
           className="bg-white/80 backdrop-blur-md p-2 rounded-full shadow-sm pointer-events-auto active:scale-95 transition-transform"
         >
           <HiArrowLeft className="text-xl text-gray-800" />
         </button>
-        <button className="bg-white/80 backdrop-blur-md p-2 rounded-full shadow-sm pointer-events-auto active:scale-95 transition-transform">
+        <button aria-label="分享" className="bg-white/80 backdrop-blur-md p-2 rounded-full shadow-sm pointer-events-auto active:scale-95 transition-transform">
           <HiShare className="text-xl text-gray-800" />
         </button>
       </div>
@@ -154,6 +155,7 @@ export default function BookDetail() {
                 <button
                   key={idx}
                   onClick={() => setCurrentImageIndex(idx)}
+                  aria-label={`查看第${idx + 1}张图片`}
                   className={`w-20 h-20 rounded-lg overflow-hidden border-2 transition-colors ${currentImageIndex === idx ? 'border-blue-600' : 'border-transparent'}`}
                 >
                   <img src={img} alt="" className="w-full h-full object-cover" />
@@ -230,7 +232,7 @@ export default function BookDetail() {
               {isWishlisted ? <HiHeart className="text-xl" /> : <HiOutlineHeart className="text-xl" />}
               {isWishlisted ? '已收藏' : '收藏'}
             </button>
-            <button className="p-3 rounded-xl border-2 border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50 transition-all">
+            <button aria-label="分享" className="p-3 rounded-xl border-2 border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50 transition-all">
               <HiShare className="text-xl" />
             </button>
           </div>

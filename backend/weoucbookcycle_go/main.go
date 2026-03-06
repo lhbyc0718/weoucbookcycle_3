@@ -61,15 +61,18 @@ func main() {
 	// 打印启动信息
 	config.PrintStartupInfo(config.GetServerConfig().Port, os.Getenv("API_BASE"), config.GetUseCloud())
 
-	// 自动迁移：仅在非生产环境或显式开启时运行（避免生产环境意外修改）
+	// 自动迁移：必须显式开启（避免生产环境意外修改）
 	enableAuto := os.Getenv("ENABLE_AUTO_MIGRATE")
-	ginMode := os.Getenv("GIN_MODE")
-	if enableAuto == "true" || ginMode != "release" {
-		if err := config.DB.AutoMigrate(&models.User{}, &models.Book{}, &models.Listing{}, &models.Message{}, &models.Chat{}); err != nil {
+
+	// 只有当显式开启 ENABLE_AUTO_MIGRATE=true 时才运行
+	if enableAuto == "true" {
+		if err := config.DB.AutoMigrate(&models.User{}, &models.Book{}, &models.Listing{}, &models.Message{}, &models.Chat{}, &models.ChatUser{}); err != nil {
 			log.Printf("Warning: auto migrate failed: %v", err)
+		} else {
+			log.Println("✅ AutoMigrate completed")
 		}
 	} else {
-		log.Println("AutoMigrate skipped (production mode)")
+		log.Println("AutoMigrate skipped (ENABLE_AUTO_MIGRATE != true)")
 	}
 
 	// 初始化Redis
@@ -103,7 +106,7 @@ func main() {
 	certFile := os.Getenv("TLS_CERT_FILE")
 	keyFile := os.Getenv("TLS_KEY_FILE")
 
-	log.Printf("🚀 Server starting on port %s (mode=%s)", port, ginMode)
+	log.Printf("🚀 Server starting on port %s (mode=%s)", port, gin.Mode())
 	log.Printf("📚 API health: http://localhost:%s/health", port)
 
 	srv := &http.Server{

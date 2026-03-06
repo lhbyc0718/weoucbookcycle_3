@@ -81,6 +81,7 @@ export default function Post() {
                     <button
                       type="button"
                       onClick={() => handleRemoveImage(idx)}
+                      aria-label="删除图片"
                       className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1 hover:bg-black/70 transition-colors"
                     >
                       <HiX className="text-xs" />
@@ -120,6 +121,7 @@ export default function Post() {
                     type="text"
                     name="title"
                     required
+                    aria-label="书名"
                     value={formData.title}
                     onChange={handleChange}
                     className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
@@ -133,6 +135,7 @@ export default function Post() {
                     type="text"
                     name="author"
                     required
+                    aria-label="作者"
                     value={formData.author}
                     onChange={handleChange}
                     className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
@@ -146,6 +149,7 @@ export default function Post() {
                 <input
                   type="text"
                   name="isbn"
+                  aria-label="ISBN"
                   value={formData.isbn}
                   onChange={handleChange}
                   className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
@@ -158,6 +162,7 @@ export default function Post() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">分类</label>
                   <select
                     name="category"
+                    aria-label="选择分类"
                     value={formData.category}
                     onChange={handleChange}
                     className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white"
@@ -177,6 +182,7 @@ export default function Post() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">成色</label>
                   <select
                     name="condition"
+                    aria-label="选择成色"
                     value={formData.condition}
                     onChange={handleChange}
                     className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white"
@@ -196,6 +202,7 @@ export default function Post() {
                     required
                     min="0"
                     step="0.01"
+                    aria-label="价格"
                     value={formData.price}
                     onChange={handleChange}
                     className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-bold text-red-500"
@@ -209,6 +216,7 @@ export default function Post() {
                 <textarea
                   name="description"
                   rows={4}
+                  aria-label="书籍描述"
                   value={formData.description}
                   onChange={handleChange}
                   className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
