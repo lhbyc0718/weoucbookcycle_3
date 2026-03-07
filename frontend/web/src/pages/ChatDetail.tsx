@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { HiArrowLeft, HiPaperAirplane } from 'react-icons/hi';
 import { chatApi, userApi } from '../services/api';
 import { wsService } from '../services/websocket';
+import { useChatStore } from '@/store/chatStore';
 
 interface Message {
   id: string;

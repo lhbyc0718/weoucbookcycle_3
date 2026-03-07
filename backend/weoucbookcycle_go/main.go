@@ -106,6 +106,22 @@ func main() {
 	certFile := os.Getenv("TLS_CERT_FILE")
 	keyFile := os.Getenv("TLS_KEY_FILE")
 
+	// 强制HTTPS重定向中间件
+	if certFile != "" && keyFile != "" {
+		r.Use(func(c *gin.Context) {
+			if c.Request.TLS == nil && c.Request.Header.Get("X-Forwarded-Proto") != "https" {
+				target := "https://" + c.Request.Host + c.Request.URL.Path
+				if len(c.Request.URL.RawQuery) > 0 {
+					target += "?" + c.Request.URL.RawQuery
+				}
+				c.Redirect(http.StatusMovedPermanently, target)
+				c.Abort()
+				return
+			}
+			c.Next()
+		})
+	}
+
 	log.Printf("🚀 Server starting on port %s (mode=%s)", port, gin.Mode())
 	log.Printf("📚 API health: http://localhost:%s/health", port)
 

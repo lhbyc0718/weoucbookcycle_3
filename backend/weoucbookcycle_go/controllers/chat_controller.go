@@ -62,21 +62,39 @@ func (cc *ChatController) processMessage(chatID, userID, content string) error {
 	}
 
 	// 增加未读计数 (Redis 和 Database)
-	// 获取聊天参与者
+	// 使用事务确保一致性
 	var chatUsers []models.ChatUser
-	config.DB.Where("chat_id = ?", chatID).Find(&chatUsers)
+	if err := config.DB.Where("chat_id = ?", chatID).Find(&chatUsers).Error; err != nil {
+		fmt.Printf("Failed to get chat users: %v\n", err)
+		return nil
+	}
 
 	for _, chatUser := range chatUsers {
 		if chatUser.UserID != userID {
-			// Update Redis
-			cc.redisClient.Incr(ctx, "unread:"+chatUser.UserID+":"+message.ChatID)
-			cc.redisClient.Expire(ctx, "unread:"+chatUser.UserID+":"+message.ChatID, time.Hour*24*7)
+			// 开启事务
+			tx := config.DB.Begin()
 
 			// Update Database
-			if err := config.DB.Model(&models.ChatUser{}).
+			if err := tx.Model(&models.ChatUser{}).
 				Where("chat_id = ? AND user_id = ?", chatID, chatUser.UserID).
 				UpdateColumn("unread_count", gorm.Expr("unread_count + ?", 1)).Error; err != nil {
+				tx.Rollback()
 				fmt.Printf("Failed to update unread count in database: %v\n", err)
+				continue
+			}
+
+			// Commit transaction
+			if err := tx.Commit().Error; err != nil {
+				fmt.Printf("Failed to commit transaction: %v\n", err)
+				continue
+			}
+
+			// Update Redis (Best effort)
+			pipe := cc.redisClient.Pipeline()
+			pipe.Incr(ctx, "unread:"+chatUser.UserID+":"+message.ChatID)
+			pipe.Expire(ctx, "unread:"+chatUser.UserID+":"+message.ChatID, time.Hour*24*7)
+			if _, err := pipe.Exec(ctx); err != nil {
+				fmt.Printf("Failed to update unread count in Redis: %v\n", err)
 			}
 		}
 	}

@@ -126,18 +126,20 @@ class WebSocketService {
   private scheduleReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('Max reconnect attempts reached');
-      // 继续重试，但间隔加大 (60s)
-      const delay = 60000;
+      
+      // 指数退避，但设置上限为 30s
+      const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 30000);
       console.log(`Will retry in ${delay}ms...`);
       
       this.reconnectTimeout = setTimeout(() => {
-        this.reconnectAttempts = 0; // 重置计数
+        // 不重置计数，保持较慢的重试频率
         this.connect();
       }, delay);
       
       return;
     }
 
+    // 指数退避: 1s, 2s, 4s, 8s, 16s...
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
     console.log(`Reconnecting in ${delay}ms... (Attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
     

@@ -30,6 +30,13 @@ type Book struct {
 	Listings []Listing `gorm:"foreignKey:BookID" json:"listings,omitempty"`
 }
 
+// 书籍状态常量
+const (
+	BookStatusSold      = 0 // 已售
+	BookStatusAvailable = 1 // 可售
+	BookStatusOffShelf  = 2 // 下架
+)
+
 // TableName 指定表名
 func (Book) TableName() string {
 	return "books"

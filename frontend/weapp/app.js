@@ -86,6 +86,10 @@ App({
   globalData: {
     userInfo: null,
     token: null,
-    apiBase: 'http://localhost:8080'
+    // 动态判断环境
+    apiBase: wx.getAccountInfoSync().miniProgram.envVersion === 'release' 
+      ? 'https://api.weoucbookcycle.com' // 请替换为实际生产域名
+      : 'http://localhost:8080',
+    wsUrl: null
   }
 });
