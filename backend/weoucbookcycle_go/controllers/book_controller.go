@@ -77,11 +77,17 @@ func (bc *BookController) updateBookStats(stat BookStatUpdate) error {
 		config.DB.Exec("UPDATE books SET view_count = view_count + 1 WHERE id = ?", stat.BookID)
 
 		// 同时更新Redis中的浏览统计（用于排行榜）
-		bc.redisClient.ZIncrBy(ctx, "rank:book:views", 1, stat.BookID)
+		// 使用 ZIncrBy 保证原子性，即使失败也不会导致数据不一致（最多丢失一次计数）
+		if err := bc.redisClient.ZIncrBy(ctx, "rank:book:views", 1, stat.BookID).Err(); err != nil {
+			// 记录日志，但不中断流程
+			fmt.Printf("Failed to update redis view count: %v\n", err)
+		}
 
 	case "like":
 		config.DB.Exec("UPDATE books SET like_count = like_count + 1 WHERE id = ?", stat.BookID)
-		bc.redisClient.ZIncrBy(ctx, "rank:book:likes", 1, stat.BookID)
+		if err := bc.redisClient.ZIncrBy(ctx, "rank:book:likes", 1, stat.BookID).Err(); err != nil {
+			fmt.Printf("Failed to update redis like count: %v\n", err)
+		}
 	}
 
 	return nil

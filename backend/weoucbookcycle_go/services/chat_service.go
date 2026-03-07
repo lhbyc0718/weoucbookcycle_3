@@ -168,6 +168,7 @@ func (cs *ChatService) DeleteChat(chatID, userID string) error {
 // ==================== 消息方法 ====================
 
 // SendMessage 发送消息
+// 优化：采用 DB-First 策略，先持久化再异步广播，防止消息丢失
 func (cs *ChatService) SendMessage(chatID, userID, content string) (*models.Message, error) {
 	// 1. 验证内容
 	if content == "" {
@@ -183,28 +184,31 @@ func (cs *ChatService) SendMessage(chatID, userID, content string) (*models.Mess
 		return nil, errors.New("you don't have permission to send messages in this chat")
 	}
 
-	// 3. 将消息任务放入队列
-	task := &MessageTask{
-		ChatID:    chatID,
-		UserID:    userID,
-		Content:   content,
-		Timestamp: time.Now(),
+	// 3. 立即持久化到数据库 (Sync)
+	message := models.Message{
+		ChatID:   chatID,
+		SenderID: userID,
+		Content:  content,
+		IsRead:   false,
 	}
 
-	select {
-	case cs.messageQueue <- task:
-		// 成功放入队列，立即返回消息ID（实际消息由worker创建）
-		message := &models.Message{
-			ChatID:   chatID,
-			SenderID: userID,
-			Content:  content,
-			IsRead:   false,
-		}
-		return message, nil
-	default:
-		// 队列满，直接处理
-		return cs.processMessageDirect(task)
+	if err := config.DB.Create(&message).Error; err != nil {
+		return nil, fmt.Errorf("failed to save message: %w", err)
 	}
+
+	// 4. 将后置处理任务放入队列 (Async)
+	// 如果队列满，选择非阻塞丢弃（或者降级为同步执行，这里选择降级）
+	task := &MessageProcessTask{Message: &message}
+	
+	select {
+	case cs.processQueue <- task:
+		// 成功入队
+	default:
+		// 队列满，降级为同步执行后置处理（防止广播丢失）
+		go cs.processAfterSend(task)
+	}
+
+	return &message, nil
 }
 
 // GetMessages 获取聊天消息
@@ -453,21 +457,9 @@ func (cs *ChatService) GetOnlineUserCount() (int64, error) {
 
 // startWorkers 启动worker池
 func (cs *ChatService) startWorkers() {
-	// 消息发送worker
-	for i := 0; i < 5; i++ {
-		go cs.messageSender(i)
-	}
-
 	// 消息处理worker
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 5; i++ { // 增加worker数量
 		go cs.messageProcessor(i)
-	}
-}
-
-// messageSender 消息发送worker
-func (cs *ChatService) messageSender(workerID int) {
-	for task := range cs.messageQueue {
-		cs.processMessageDirect(task)
 	}
 }
 

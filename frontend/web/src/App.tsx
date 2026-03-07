@@ -8,18 +8,24 @@ import ChatDetail from './pages/ChatDetail';
 import UserProfile from './pages/UserProfile';
 import Post from './pages/Post';
 import './index.css';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { wsService } from './services/websocket';
 import { useChatStore } from './store/chatStore';
 import { chatApi } from './services/api';
+import LoginModal from './components/LoginModal';
 
 export default function App() {
   const { incrementUnreadCount, setUnreadCount } = useChatStore();
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   useEffect(() => {
     // Initialize WebSocket connection
     wsService.connect();
+
+    // Listen for auth errors
+    const handleAuthError = () => setShowLoginModal(true);
+    window.addEventListener('auth:unauthorized', handleAuthError);
 
     // Subscribe to messages for global unread count
     const handleMessage = (data: any) => {
@@ -49,6 +55,7 @@ export default function App() {
     fetchUnread();
 
     return () => {
+      window.removeEventListener('auth:unauthorized', handleAuthError);
       wsService.unsubscribe('message', handleMessage);
       wsService.disconnect();
     };
@@ -57,6 +64,15 @@ export default function App() {
   return (
     <BrowserRouter>
       <Toaster position="top-center" reverseOrder={false} />
+      <LoginModal 
+        isOpen={showLoginModal} 
+        onClose={() => setShowLoginModal(false)}
+        onSuccess={() => {
+            setShowLoginModal(false);
+            wsService.connect(); // Reconnect socket after login
+            window.location.reload(); // Simple way to refresh state
+        }} 
+      />
       <Routes>
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Home />} />

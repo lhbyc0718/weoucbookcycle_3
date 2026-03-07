@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 	"weoucbookcycle_go/config"
+	"weoucbookcycle_go/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -256,7 +257,6 @@ func (c *Client) writePump() {
 
 			c.Connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.Connection.WriteJSON(message); err != nil {
-				log.Printf("WebSocket write error for user %s: %v", c.ID, err)
 				return
 			}
 
@@ -532,34 +532,47 @@ func subscribeToRedis() {
 
 // sendUnreadMessages 发送未读消息
 func (c *Client) sendUnreadMessages() {
-	if config.RedisClient == nil {
+	// 从数据库获取未读消息 (确保可靠性)
+	var messages []models.Message
+
+	// 查询当前用户作为接收者的所有未读消息
+	// 逻辑：消息所属聊天的参与者包含当前用户，且发送者不是当前用户，且消息未读
+	err := config.DB.Table("messages").
+		Select("messages.*").
+		Joins("JOIN chat_users ON messages.chat_id = chat_users.chat_id").
+		Where("chat_users.user_id = ? AND messages.sender_id != ? AND messages.is_read = ?", c.ID, c.ID, false).
+		Order("messages.created_at ASC").
+		Limit(100). // 限制数量，防止一次推送过多
+		Find(&messages).Error
+
+	if err != nil {
+		log.Printf("Failed to fetch unread messages for user %s: %v", c.ID, err)
 		return
 	}
 
-	// 获取用户所有聊天室的未读消息
-	pattern := "unread:" + c.ID + ":*"
-	keys, _ := config.RedisClient.Keys(redisCtx, pattern).Result()
+	if len(messages) == 0 {
+		return
+	}
 
-	for _, key := range keys {
-		// 提取chatID
-		chatID := key[len("unread:"+c.ID+":"):]
+	log.Printf("Pushing %d offline messages to user %s", len(messages), c.ID)
 
-		// 获取缓存的消息
-		cacheKey := "chat:" + chatID + ":last_messages"
-		cachedMessages, err := config.RedisClient.LRange(redisCtx, cacheKey, 0, -1).Result()
-		if err != nil {
-			continue
+	for _, msg := range messages {
+		// 构造WSMessage
+		wsMsg := WSMessage{
+			Type:      "message",
+			ChatID:    msg.ChatID,
+			Content:   msg.Content,
+			Timestamp: msg.CreatedAt.Unix(),
+			From:      msg.SenderID,
+			Data:      msg,
 		}
 
-		// 发送缓存的消息
-		for _, msgStr := range cachedMessages {
-			var message WSMessage
-			if err := json.Unmarshal([]byte(msgStr), &message); err == nil {
-				select {
-				case c.Send <- &message:
-				default:
-				}
-			}
+		// 发送给客户端
+		select {
+		case c.Send <- &wsMsg:
+		default:
+			log.Printf("Client %s send queue full, dropping offline message", c.ID)
+			return
 		}
 	}
 }

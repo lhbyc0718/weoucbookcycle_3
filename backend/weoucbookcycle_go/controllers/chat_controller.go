@@ -11,11 +11,9 @@ import (
 	"weoucbookcycle_go/models"
 	"weoucbookcycle_go/services"
 	"weoucbookcycle_go/utils"
-	ws "weoucbookcycle_go/websocket"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
-	"gorm.io/gorm"
 )
 
 var ctx = context.Background()
@@ -34,72 +32,10 @@ func NewChatController() *ChatController {
 
 // processMessage 处理消息
 func (cc *ChatController) processMessage(chatID, userID, content string) error {
-	// 创建消息记录
-	message := models.Message{
-		ChatID:   chatID,
-		SenderID: userID,
-		Content:  content,
-		IsRead:   false,
-	}
-
-	if err := config.DB.Create(&message).Error; err != nil {
-		return err
-	}
-
-	// 广播消息到聊天室
-	// 构造前端需要的消息格式
-	wsMsg := ws.WSMessage{
-		Type:      "message",
-		ChatID:    message.ChatID,
-		Content:   message.Content,
-		Timestamp: message.CreatedAt.Unix(),
-		From:      message.SenderID,
-		Data:      message, // 包含完整消息数据
-	}
-
-	if err := ws.BroadcastToChat(message.ChatID, "message", wsMsg); err != nil {
-		fmt.Printf("Failed to broadcast message: %v\n", err)
-	}
-
-	// 增加未读计数 (Redis 和 Database)
-	// 使用事务确保一致性
-	var chatUsers []models.ChatUser
-	if err := config.DB.Where("chat_id = ?", chatID).Find(&chatUsers).Error; err != nil {
-		fmt.Printf("Failed to get chat users: %v\n", err)
-		return nil
-	}
-
-	for _, chatUser := range chatUsers {
-		if chatUser.UserID != userID {
-			// 开启事务
-			tx := config.DB.Begin()
-
-			// Update Database
-			if err := tx.Model(&models.ChatUser{}).
-				Where("chat_id = ? AND user_id = ?", chatID, chatUser.UserID).
-				UpdateColumn("unread_count", gorm.Expr("unread_count + ?", 1)).Error; err != nil {
-				tx.Rollback()
-				fmt.Printf("Failed to update unread count in database: %v\n", err)
-				continue
-			}
-
-			// Commit transaction
-			if err := tx.Commit().Error; err != nil {
-				fmt.Printf("Failed to commit transaction: %v\n", err)
-				continue
-			}
-
-			// Update Redis (Best effort)
-			pipe := cc.redisClient.Pipeline()
-			pipe.Incr(ctx, "unread:"+chatUser.UserID+":"+message.ChatID)
-			pipe.Expire(ctx, "unread:"+chatUser.UserID+":"+message.ChatID, time.Hour*24*7)
-			if _, err := pipe.Exec(ctx); err != nil {
-				fmt.Printf("Failed to update unread count in Redis: %v\n", err)
-			}
-		}
-	}
-
-	return nil
+	// 使用 ChatService 处理消息发送，确保逻辑统一
+	chatService := services.NewChatService()
+	_, err := chatService.SendMessage(chatID, userID, content)
+	return err
 }
 
 // GetChats 获取聊天列表

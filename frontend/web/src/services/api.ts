@@ -59,15 +59,21 @@ apiClient.interceptors.response.use(
     // 处理 401 Unauthorized (Token过期)
     if (status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
+      // 优化 Token 刷新逻辑，避免强制跳转
       try {
         const newToken = await refreshToken();
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         return apiClient(originalRequest);
       } catch (refreshError) {
-        // 刷新失败，重定向到登录
+        // 刷新失败，可能是 refresh token 也过期了
+        // 此时才清除本地状态并跳转
+        // 建议使用事件通知 UI 弹出登录框，而不是直接跳转，以保护用户当前输入
         localStorage.removeItem('authToken');
         localStorage.removeItem('userInfo');
-        window.location.href = '/login';
+        
+        // 触发全局事件，让 App 组件处理登录弹窗或跳转
+        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+        
         return Promise.reject(refreshError);
       }
     }
@@ -97,9 +103,19 @@ apiClient.interceptors.response.use(
     console.error('API Error:', errorMessage);
     
     // 使用 react-hot-toast 显示错误提示
-    // 注意：如果是 401 刷新 token 失败导致的跳转，通常不需要提示，避免打断用户体验
-    if (status !== 401) {
-        toast.error(errorMessage);
+    // 优化：避免网络波动时的弹窗轰炸
+    // 1. 忽略 401 (已在上方处理)
+    // 2. 忽略 "取消请求" (CanceledError)
+    if (status !== 401 && error.code !== 'ERR_CANCELED') {
+        // 简单的防抖机制：避免同一错误短时间内多次弹出
+        const errorKey = `toast:${errorMessage}`;
+        const lastShown = sessionStorage.getItem(errorKey);
+        const now = Date.now();
+        
+        if (!lastShown || (now - parseInt(lastShown)) > 3000) {
+            toast.error(errorMessage);
+            sessionStorage.setItem(errorKey, now.toString());
+        }
     }
     
     return Promise.reject(new Error(errorMessage));

@@ -14,6 +14,7 @@ import (
 	"weoucbookcycle_go/middleware"
 	"weoucbookcycle_go/models"
 	"weoucbookcycle_go/routes"
+	"weoucbookcycle_go/services"
 	"weoucbookcycle_go/websocket"
 
 	"github.com/gin-gonic/gin"
@@ -97,6 +98,10 @@ func main() {
 
 	// 注册自定义路由
 	routes.SetupRoutes(r)
+
+	// 启动数据一致性检查任务
+	monitorService := services.NewMonitorService()
+	monitorService.StartConsistencyCheck()
 
 	// 启动服务器
 	port := config.GetServerConfig().Port

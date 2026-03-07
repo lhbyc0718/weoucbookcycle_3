@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"unicode"
 
 	"github.com/gin-gonic/gin"
@@ -182,11 +183,18 @@ func validateISBN(fl validator.FieldLevel) bool {
 	}
 
 	// ISBN-10 或 ISBN-13
-	isbn10Regex := `^(?:\d[\d-]{8}[\dX])$`
-	isbn13Regex := `^(?:\d[\d-]{12}[\dX])$`
-
-	matched10, _ := regexp.MatchString(isbn10Regex, isbn)
-	matched13, _ := regexp.MatchString(isbn13Regex, isbn)
+	// 简单的正则匹配，不进行严格的校验位计算
+	// 允许带横杠或不带
+	
+	// 简化版正则，适配更多情况
+	simpleIsbn10 := `^\d{9}[\d|X]$`
+	simpleIsbn13 := `^\d{13}$`
+	
+	// 移除所有横杠和空格
+	cleanIsbn := strings.ReplaceAll(strings.ReplaceAll(isbn, "-", ""), " ", "")
+	
+	matched10, _ := regexp.MatchString(simpleIsbn10, cleanIsbn)
+	matched13, _ := regexp.MatchString(simpleIsbn13, cleanIsbn)
 
 	return matched10 || matched13
 }
@@ -227,13 +235,16 @@ func ValidatePhone(phone string) bool {
 
 // SanitizeString 清理字符串（防止XSS）
 func SanitizeString(input string) string {
-	// 移除HTML标签
-	reg := regexp.MustCompile(`<[^>]*>`)
-	cleaned := reg.ReplaceAllString(input, "")
+	// 简单移除 <script> 标签及其内容
+	// 注意：这只是一个非常基础的实现，生产环境建议使用专门的库如 bluemonday
+	
+	// 1. 移除 script 标签及其内容
+	scriptRegex := regexp.MustCompile(`(?i)<script[^>]*>[\s\S]*?</script>`)
+	cleaned := scriptRegex.ReplaceAllString(input, "")
 
-	// 移除JavaScript代码
-	jsRegex := regexp.MustCompile(`<script[^>]*>.*?</script>`)
-	cleaned = jsRegex.ReplaceAllString(cleaned, "")
+	// 2. 移除其他 HTML 标签
+	tagRegex := regexp.MustCompile(`<[^>]*>`)
+	cleaned = tagRegex.ReplaceAllString(cleaned, "")
 
 	return cleaned
 }

@@ -71,15 +71,21 @@ func InitDatabase() error {
 	)
 
 	// 配置Gorm日志
-	logLevel := logger.Silent
-	if GetEnv("GIN_MODE", "release") == "debug" {
-		logLevel = logger.Info
-	}
+	// 开启慢查询监控：超过200ms的查询会被记录
+	newLogger := logger.New(
+		log.New(log.Writer(), "\r\n", log.LstdFlags), // io writer
+		logger.Config{
+			SlowThreshold:             200 * time.Millisecond, // 慢查询阈值
+			LogLevel:                  logger.Warn,            // 记录警告和错误
+			IgnoreRecordNotFoundError: true,                   // 忽略未找到记录错误
+			Colorful:                  true,                   // 彩色打印
+		},
+	)
 
 	// 连接数据库
 	var err error
 	DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logLevel),
+		Logger: newLogger,
 		NowFunc: func() time.Time {
 			return time.Now().Local()
 		},

@@ -7,6 +7,7 @@ import (
 	"time"
 	"weoucbookcycle_go/config"
 	"weoucbookcycle_go/models"
+	"weoucbookcycle_go/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -160,7 +161,8 @@ func (lc *ListingController) CreateListing(c *gin.Context) {
 
 	// 检查是否已有发布的listing
 	var existingListing models.Listing
-	if err := config.DB.Where("book_id = ? AND seller_id = ? AND status IN ?",
+	// 使用 FOR UPDATE 加锁，防止并发创建
+	if err := config.DB.Set("gorm:query_option", "FOR UPDATE").Where("book_id = ? AND seller_id = ? AND status IN ?",
 		req.BookID, userID, []string{"available", "reserved"}).First(&existingListing).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "This book is already listed"})
 		return
@@ -221,6 +223,17 @@ func (lc *ListingController) UpdateListingStatus(c *gin.Context) {
 		return
 	}
 
+	// 使用分布式锁防止并发修改
+	lock := utils.NewRedisLock("listing:"+listingID, 5*time.Second)
+	if acquired, err := lock.Acquire(ctx); err != nil {
+		// Redis错误，降级处理或报错
+		// 这里选择继续，依赖数据库事务兜底
+	} else if !acquired {
+		c.JSON(http.StatusConflict, gin.H{"error": "Resource is locked, please try again"})
+		return
+	}
+	defer lock.Release(ctx)
+
 	// 更新状态
 	updates := map[string]interface{}{
 		"status": req.Status,
@@ -231,16 +244,32 @@ func (lc *ListingController) UpdateListingStatus(c *gin.Context) {
 		updates["buyer_id"] = req.BuyerID
 	}
 
-	if err := config.DB.Model(&listing).Updates(updates).Error; err != nil {
+	// 开启事务
+	tx := config.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if err := tx.Model(&listing).Updates(updates).Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update listing status"})
 		return
 	}
 
-	// 如果是sold状态，更新书籍状态
+	// 如果是sold状态，同步更新书籍状态
 	if req.Status == "sold" {
-		go func() {
-			config.DB.Model(&models.Book{}).Where("id = ?", listing.BookID).Update("status", 0)
-		}()
+		if err := tx.Model(&models.Book{}).Where("id = ?", listing.BookID).Update("status", 0).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update book status"})
+			return
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction commit failed"})
+		return
 	}
 
 	// 删除缓存

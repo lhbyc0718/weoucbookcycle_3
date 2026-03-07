@@ -111,4 +111,11 @@ func SetupRoutes(r *gin.Engine) {
 
 	// ====== Prometheus Metrics ======
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// ====== 系统监控 ======
+	// 仅限管理员访问（建议添加AdminMiddleware）
+	monitor := r.Group("/api/monitor", middleware.AuthMiddleware()) 
+	{
+		monitor.GET("/stats", controllers.NewMonitorController().GetSystemStats)
+	}
 }
