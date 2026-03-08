@@ -107,6 +107,13 @@ func InitWebSocket() error {
 
 // HandleConnection 处理WebSocket连接
 func HandleConnection(c *gin.Context) {
+	// 限制总连接数 (简单实现，生产环境可用 Redis 计数)
+	count, _ := GetOnlineUserCount()
+	if count >= 10000 {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server is busy"})
+		return
+	}
+
 	token := c.Query("token")
 	// Web 端可通过 HttpOnly Cookie 自动携带，这里做兜底读取
 	if token == "" {
@@ -144,7 +151,7 @@ func HandleConnection(c *gin.Context) {
 		return
 	}
 
-	// 创建客户端
+	// 注册客户端
 	client := &Client{
 		ID:         userID,
 		Connection: conn,
@@ -152,59 +159,89 @@ func HandleConnection(c *gin.Context) {
 		ChatRooms:  make(map[string]bool),
 	}
 
-	// 添加到客户端列表
 	clientsMutex.Lock()
+	// 检查是否已有连接，如果有，踢出旧连接（单点登录）
+	if oldClient, ok := clients[userID]; ok {
+		log.Printf("Kicking out old connection for user %s", userID)
+		oldClient.Connection.Close() // 关闭旧连接
+		delete(clients, userID)
+	}
 	clients[userID] = client
 	clientsMutex.Unlock()
 
-	// 设置用户在线状态到Redis
+	// 更新Redis在线状态
 	if config.RedisClient != nil {
-		go func() {
-			config.RedisClient.Set(redisCtx, "online:"+userID, "1", time.Minute*5)
-			config.RedisClient.SAdd(redisCtx, "online:users", userID)
-		}()
+		config.RedisClient.SAdd(redisCtx, "online:users", userID)
+		config.RedisClient.Set(redisCtx, "online:"+userID, "true", 0)
 	}
 
-	log.Printf("User %s connected via WebSocket", userID)
-
 	// 启动读写goroutine
-	go client.readPump()
-	go client.writePump()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Recovered from panic in readPump: %v", r)
+				// 确保清理逻辑执行
+				client.cleanup()
+			}
+		}()
+		client.readPump()
+	}()
 
-	// 发送未读消息
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Recovered from panic in writePump: %v", r)
+			}
+		}()
+		client.writePump()
+	}()
+
+	// 发送未读消息 (离线消息同步)
+	// 注意：这里改为异步调用，避免阻塞连接建立
 	go client.sendUnreadMessages()
+}
+
+// cleanup 清理连接资源
+func (c *Client) cleanup() {
+	// 确保只执行一次
+	c.mu.Lock()
+	if c.Connection == nil {
+		c.mu.Unlock()
+		return
+	}
+	c.mu.Unlock()
+
+	log.Printf("Closing connection for user %s", c.ID)
+
+	// 从所有聊天室移除
+	c.mu.Lock()
+	for chatID := range c.ChatRooms {
+		if room, exists := getChatRoom(chatID); exists {
+			room.mu.Lock()
+			delete(room.Clients, c.ID)
+			room.mu.Unlock()
+		}
+	}
+	c.mu.Unlock()
+
+	// 从客户端列表移除
+	clientsMutex.Lock()
+	delete(clients, c.ID)
+	clientsMutex.Unlock()
+
+	// 更新Redis在线状态
+	if config.RedisClient != nil {
+		config.RedisClient.Del(redisCtx, "online:"+c.ID)
+		config.RedisClient.SRem(redisCtx, "online:users", c.ID)
+	}
+
+	c.Connection.Close()
+	c.Connection = nil // 标记为已关闭
 }
 
 // readPump 从WebSocket连接读取消息
 func (c *Client) readPump() {
-	defer func() {
-		// 清理连接
-		log.Printf("Closing connection for user %s", c.ID)
-
-		// 从所有聊天室移除
-		c.mu.Lock()
-		for chatID := range c.ChatRooms {
-			if room, exists := getChatRoom(chatID); exists {
-				room.mu.Lock()
-				delete(room.Clients, c.ID)
-				room.mu.Unlock()
-			}
-		}
-		c.mu.Unlock()
-
-		// 从客户端列表移除
-		clientsMutex.Lock()
-		delete(clients, c.ID)
-		clientsMutex.Unlock()
-
-		// 更新Redis在线状态
-		if config.RedisClient != nil {
-			config.RedisClient.Del(redisCtx, "online:"+c.ID)
-			config.RedisClient.SRem(redisCtx, "online:users", c.ID)
-		}
-
-		c.Connection.Close()
-	}()
+	defer c.cleanup()
 
 	// 设置读超时
 	c.Connection.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -593,6 +630,26 @@ func GetOnlineUserCount() (int64, error) {
 	}
 
 	return config.RedisClient.SCard(redisCtx, "online:users").Result()
+}
+
+// PushToUser 推送消息给指定用户
+func PushToUser(userID string, msg WSMessage) error {
+	clientsMutex.RLock()
+	client, ok := clients[userID]
+	clientsMutex.RUnlock()
+
+	if ok {
+		select {
+		case client.Send <- &msg:
+			return nil
+		default:
+			return fmt.Errorf("client send queue full")
+		}
+	}
+
+	// 如果用户不在当前节点，尝试通过 Redis 广播（如果实现了多节点架构）
+	// 这里暂略
+	return fmt.Errorf("user not connected")
 }
 
 // BroadcastToAll 广播消息给所有在线用户

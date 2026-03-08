@@ -10,10 +10,10 @@ import (
 type Listing struct {
 	ID            string         `gorm:"type:varchar(36);primaryKey" json:"id"`
 	BookID        string         `gorm:"type:varchar(36);index;not null" json:"book_id"`
-	SellerID      string         `gorm:"type:varchar(36);index;not null" json:"seller_id"`
+	SellerID      string         `gorm:"type:varchar(36);index:idx_seller_status;not null" json:"seller_id"`
 	BuyerID       string         `gorm:"type:varchar(36);index" json:"buyer_id,omitempty"`
 	Price         float64        `gorm:"type:decimal(10,2);not null" json:"price"`
-	Status        string         `gorm:"type:varchar(20);default:available;comment:available,reserved,sold,cancelled" json:"status"`
+	Status        string         `gorm:"type:varchar(20);default:available;index:idx_seller_status;comment:available,reserved,sold,cancelled" json:"status"`
 	Note          string         `gorm:"type:text" json:"note,omitempty"`
 	FavoriteCount int64          `gorm:"default:0" json:"favorite_count"`
 	CreatedAt     time.Time      `json:"created_at"`

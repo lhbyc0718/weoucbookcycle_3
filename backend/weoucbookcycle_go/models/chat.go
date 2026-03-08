@@ -22,8 +22,8 @@ type Chat struct {
 // ChatUser 聊天用户关联模型
 type ChatUser struct {
 	ID          string    `gorm:"type:varchar(36);primaryKey" json:"id"`
-	ChatID      string    `gorm:"type:varchar(36);index;not null" json:"chat_id"`
-	UserID      string    `gorm:"type:varchar(36);index;not null" json:"user_id"`
+	ChatID      string    `gorm:"type:varchar(36);index:idx_chat_user;not null" json:"chat_id"`
+	UserID      string    `gorm:"type:varchar(36);index:idx_chat_user;not null" json:"user_id"`
 	UnreadCount int       `gorm:"default:0" json:"unread_count"`
 	CreatedAt   time.Time `json:"created_at"`
 

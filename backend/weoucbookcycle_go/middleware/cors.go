@@ -30,6 +30,7 @@ func GetDefaultCORSConfig() *CORSConfig {
 		ExposeHeaders:    []string{"Content-Length", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
+		// Secure: true, // 建议在生产环境开启，配合 HTTPS
 	}
 }
 
@@ -42,6 +43,7 @@ func GetProductionCORSConfig(allowedOrigins []string) *CORSConfig {
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 		MaxAge:           24 * time.Hour,
+		// Secure: true, // 生产环境必须开启 HTTPS
 	}
 }
 

@@ -17,7 +17,19 @@ func SetupRoutes(r *gin.Engine) {
 
 	// API 路由组
 	// 使用速率限制中间件
-	api := r.Group("/api", middleware.RateLimitMiddleware())
+	// 添加安全头中间件
+	api := r.Group("/api", middleware.RateLimitMiddleware(), middleware.SecurityHeadersMiddleware())
+
+	// 简单的 CSRF 保护 (Origin Check)
+	// 在生产环境中，allowedOrigins 应该从配置中读取
+	allowedOrigins := []string{
+		"http://localhost:3000",
+		"http://localhost:5173",
+		"http://localhost:4173",
+		os.Getenv("FRONTEND_URL"), // 支持环境变量配置
+	}
+	api.Use(middleware.CSRFMiddleware(allowedOrigins))
+
 	{
 		// ====== 认证路由 (无需认证) ======
 		auth := api.Group("/auth")
@@ -114,7 +126,7 @@ func SetupRoutes(r *gin.Engine) {
 
 	// ====== 系统监控 ======
 	// 仅限管理员访问（建议添加AdminMiddleware）
-	monitor := r.Group("/api/monitor", middleware.AuthMiddleware()) 
+	monitor := r.Group("/api/monitor", middleware.AuthMiddleware())
 	{
 		monitor.GET("/stats", controllers.NewMonitorController().GetSystemStats)
 	}

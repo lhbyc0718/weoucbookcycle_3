@@ -9,11 +9,11 @@ import (
 // Message 消息模型
 type Message struct {
 	ID        string         `gorm:"type:varchar(36);primaryKey" json:"id"`
-	ChatID    string         `gorm:"type:varchar(36);index;not null" json:"chat_id"`
+	ChatID    string         `gorm:"type:varchar(36);index:idx_chat_created;not null" json:"chat_id"`
 	SenderID  string         `gorm:"type:varchar(36);index;not null" json:"sender_id"`
 	Content   string         `gorm:"type:text;not null" json:"content"`
 	IsRead    bool           `gorm:"default:false" json:"is_read"`
-	CreatedAt time.Time      `json:"created_at"`
+	CreatedAt time.Time      `gorm:"index:idx_chat_created" json:"created_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
 	// 关联关系

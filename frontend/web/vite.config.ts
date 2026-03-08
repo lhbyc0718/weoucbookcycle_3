@@ -9,7 +9,18 @@ const __dirname = path.dirname(__filename)
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  resolve: {
+	build: {
+		rollupOptions: {
+			output: {
+				manualChunks: {
+					'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+					'ui-vendor': ['framer-motion', 'react-icons', 'react-hot-toast'],
+					'chart-vendor': ['recharts'],
+				}
+			}
+		}
+	},
+	resolve: {
     alias: {
       '@': path.resolve(__dirname, './src')
     }

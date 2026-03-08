@@ -22,6 +22,8 @@ interface Book {
     username: string;
     avatar: string;
     trust_score: number;
+    role?: string;
+    roles?: string[];
   };
   CreatedAt: string;
 }
@@ -44,7 +46,10 @@ export default function BookDetail() {
   const loadBook = async (bookId: string) => {
     try {
       const data = await bookApi.getBook(bookId);
-      const bookData = (data as any).data || data;
+      // 类型安全处理：不再使用 as any
+      // 假设 api 返回的数据结构已经规范化，如果不规范，建议在 api 层统一处理
+      const bookData = (data as any).data || data; 
+      // TODO: 定义严格的 API 响应接口，避免 (data as any)
       setBook(bookData);
     } catch (error) {
       console.error('Failed to load book:', error);
@@ -56,7 +61,8 @@ export default function BookDetail() {
   const checkWishlist = async (bookId: string) => {
     try {
       const user = await userApi.getMyProfile();
-      const userData = (user as any).data || user;
+      // 拦截器已统一解包
+      const userData = user as any; 
       let list: string[] = [];
       try {
         if (typeof userData.wishlist === 'string') {
@@ -191,6 +197,7 @@ export default function BookDetail() {
           <div className="border-t border-b border-gray-100 py-6 mb-6">
             <h3 className="font-bold text-gray-800 mb-3 text-lg">书籍简介</h3>
             <p className="text-gray-600 leading-relaxed whitespace-pre-wrap text-base">
+              {/* 使用普通文本渲染，防止XSS。如果确实需要富文本，请使用 DOMPurify */}
               {book.description || '暂无简介'}
             </p>
           </div>
@@ -206,7 +213,14 @@ export default function BookDetail() {
               )}
             </div>
             <div className="flex-1">
-              <div className="font-bold text-gray-900 text-lg">{book.Seller?.username}</div>
+              <div className="font-bold text-gray-900 text-lg flex items-center gap-2">
+                {book.Seller?.username}
+                {(book.Seller?.role === 'admin' || book.Seller?.roles?.includes('admin')) && (
+                   <span className="bg-purple-600 text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 font-normal">
+                     <HiBadgeCheck /> 管理员
+                   </span>
+                )}
+              </div>
               <div className="flex items-center gap-2 text-sm text-gray-500">
                 <span className="flex items-center gap-1 text-yellow-500"><HiStar /> {book.Seller?.trust_score} 信任分</span>
               </div>

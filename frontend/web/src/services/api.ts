@@ -1,6 +1,13 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { toast } from 'react-hot-toast';
 
+// 定义标准 API 响应结构
+export interface ApiResponse<T = any> {
+  code: number;
+  message: string;
+  data: T;
+}
+
 // 优先使用环境变量，如果没有则回退到默认值
 // 注意：在生产环境中，必须正确设置环境变量，否则会连接到localhost导致失败
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
@@ -31,17 +38,18 @@ apiClient.interceptors.request.use(
 // 响应拦截器 - 处理401和错误
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
-    // 检查是否有 code 字段 (WeChat style response wrapper)
+    // 统一解包：如果后端返回标准格式，直接返回 data 字段
+    // 这样前端组件拿到的直接是业务数据
     if (response.data && typeof response.data.code !== 'undefined') {
-      const { code, data, message } = response.data;
+      const { code, data, message } = response.data as ApiResponse;
       if (code === 20000) {
-        return data;
+        return data; // 直接返回业务数据 T
       }
       // 业务逻辑错误
       return Promise.reject(new Error(message || '请求失败'));
     }
     
-    // 如果没有 code 字段，假设直接返回数据 (Standard REST style)
+    // 如果没有 code 字段，假设直接返回数据 (兼容旧接口或非标准接口)
     return response.data;
   },
   async (error) => {
@@ -187,6 +195,11 @@ export const userApi = {
     apiClient.post('/api/users/wishlist/toggle', { bookId }),
   evaluateUser: (data: { seller_id: string, is_good: boolean }) => 
     apiClient.post('/api/users/evaluate', data),
+  
+  // 管理员接口
+  admin: {
+    getStats: () => apiClient.get('/api/monitor/stats'),
+  }
 };
 
 // 聊天API

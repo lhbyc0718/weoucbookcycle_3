@@ -21,9 +21,16 @@ Page({
 
   loadUserData: function() {
     if (app.globalData.userInfo) {
+      const user = app.globalData.userInfo;
+      // Check for admin role
+      const isAdmin = user.role === 'admin' || (user.roles && user.roles.includes('admin'));
+      
       this.setData({
         isLoggedIn: true,
-        user: app.globalData.userInfo
+        user: {
+            ...user,
+            isAdmin: isAdmin
+        }
       });
     } else {
       this.setData({

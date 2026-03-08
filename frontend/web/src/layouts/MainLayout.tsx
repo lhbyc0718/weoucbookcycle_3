@@ -1,12 +1,31 @@
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
-import { HiHome, HiShoppingBag, HiChat, HiPlusCircle, HiUser } from 'react-icons/hi';
+import { HiHome, HiShoppingBag, HiChat, HiPlusCircle, HiUser, HiChartPie } from 'react-icons/hi';
 import clsx from 'clsx';
 import { useChatStore } from '../store/chatStore';
+import { useEffect, useState } from 'react';
+import { userApi } from '../services/api';
 
 export default function MainLayout() {
   const location = useLocation();
   const isPostPage = location.pathname === '/post';
   const unreadCount = useChatStore(state => state.unreadCount);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    // 检查用户角色
+    const checkRole = async () => {
+      try {
+        const user = await userApi.getMyProfile();
+        // @ts-ignore
+        const roles = user.roles || [];
+        // @ts-ignore
+        setIsAdmin(roles.includes('admin') || user.role === 'admin');
+      } catch (e) {
+        console.error("Failed to fetch user profile", e);
+      }
+    };
+    checkRole();
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex flex-col">
@@ -28,6 +47,12 @@ export default function MainLayout() {
                   </span>
                 )}
               </NavLink>
+              {isAdmin && (
+                <NavLink to="/admin" className={({ isActive }) => clsx("text-sm font-medium transition-colors hover:text-blue-600 flex items-center gap-1", isActive ? "text-blue-600" : "text-purple-600")}>
+                  <HiChartPie />
+                  管理后台
+                </NavLink>
+              )}
             </nav>
           </div>
           
@@ -36,8 +61,9 @@ export default function MainLayout() {
               <HiPlusCircle className="text-lg" />
               <span>发布书籍</span>
             </NavLink>
-            <NavLink to="/profile" className={({ isActive }) => clsx("p-2 rounded-full transition-colors flex items-center justify-center w-10 h-10", isActive ? "text-blue-600 bg-blue-50" : "text-gray-500 hover:text-blue-600 hover:bg-gray-100")}>
+            <NavLink to="/profile" className={({ isActive }) => clsx("p-2 rounded-full transition-colors flex items-center justify-center w-10 h-10 relative", isActive ? "text-blue-600 bg-blue-50" : "text-gray-500 hover:text-blue-600 hover:bg-gray-100")}>
               <HiUser className="text-xl" />
+              {isAdmin && <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-purple-500 rounded-full border-2 border-white"></span>}
             </NavLink>
           </div>
         </div>
@@ -81,8 +107,11 @@ export default function MainLayout() {
             <span>消息</span>
           </NavLink>
 
-          <NavLink to="/profile" className={({ isActive }) => clsx("flex flex-col items-center space-y-1 text-xs transition-colors", isActive ? "text-blue-600" : "text-gray-400")}>
-            <HiUser className="text-2xl" />
+          <NavLink to="/profile" className={({ isActive }) => clsx("flex flex-col items-center space-y-1 text-xs transition-colors relative", isActive ? "text-blue-600" : "text-gray-400")}>
+            <div className="relative">
+              <HiUser className="text-2xl" />
+              {isAdmin && <span className="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full border border-white"></span>}
+            </div>
             <span>我的</span>
           </NavLink>
         </nav>

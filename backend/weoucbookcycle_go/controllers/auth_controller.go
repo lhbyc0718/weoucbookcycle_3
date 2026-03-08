@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"net/http"
+	"os"
 	"weoucbookcycle_go/services"
 	"weoucbookcycle_go/utils"
 
@@ -106,8 +108,11 @@ func (ac *AuthController) Register(c *gin.Context) {
 		},
 	})
 
-	// Set HttpOnly Cookie
-	c.SetCookie("jwt_token", token, 7200, "/", "", false, true)
+	// Set HttpOnly Cookie with SameSite: Strict
+	c.SetSameSite(http.SameSiteStrictMode)
+	// Secure should be true in production (requires HTTPS)
+	isSecure := os.Getenv("GIN_MODE") == "release"
+	c.SetCookie("jwt_token", token, 7200, "/", "", isSecure, true)
 }
 
 // Login 用户登录
@@ -264,8 +269,10 @@ func (ac *AuthController) WeChatLogin(c *gin.Context) {
 		},
 	})
 
-	// Set HttpOnly Cookie
-	c.SetCookie("jwt_token", token, 7200, "/", "", false, true)
+	// Set HttpOnly Cookie with SameSite: Strict
+	c.SetSameSite(http.SameSiteStrictMode)
+	isSecure := os.Getenv("GIN_MODE") == "release"
+	c.SetCookie("jwt_token", token, 7200, "/", "", isSecure, true)
 }
 
 // VerifyEmail 验证邮箱

@@ -3,7 +3,6 @@ package models
 import (
 	"time"
 
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -30,13 +29,16 @@ type User struct {
 	Listings  []Listing  `gorm:"foreignKey:SellerID" json:"listings,omitempty"`
 	ChatUsers []ChatUser `gorm:"foreignKey:UserID" json:"chat_users,omitempty"`
 	Messages  []Message  `gorm:"foreignKey:SenderID" json:"messages,omitempty"`
-	// Wishlist 存储用户收藏的书籍ID列表（JSON）
-	Wishlist datatypes.JSON `gorm:"type:json" json:"wishlist,omitempty"`
+	// Wishlist 关联改为独立表
+	WishlistItems []Wishlist `gorm:"foreignKey:UserID" json:"wishlist_items,omitempty"`
 	// TrustScore 用户的信任分（0-100）
 	TrustScore int `gorm:"default:80" json:"trustScore"`
 
 	// 微信开放平台openid，用于小程序登录
 	WeChatOpenID string `gorm:"type:varchar(100);uniqueIndex;comment:微信openid" json:"wechat_openid,omitempty"`
+	
+	// 角色管理 (简单实现：admin, user)
+	Role string `gorm:"type:varchar(20);default:user;comment:用户角色" json:"role"`
 }
 
 // TableName 指定表名

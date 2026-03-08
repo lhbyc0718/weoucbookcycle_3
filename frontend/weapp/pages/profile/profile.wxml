@@ -9,7 +9,10 @@
     <image class="user-avatar" src="{{user.avatar || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop'}}" mode="aspectFill"></image>
     
     <block wx:if="{{isLoggedIn}}">
-        <text class="user-name">{{user.username}}</text>
+        <view class="user-name-row" style="display: flex; align-items: center; justify-content: center; gap: 10rpx;">
+            <text class="user-name">{{user.username}}</text>
+            <view wx:if="{{user.isAdmin}}" style="background: #7e22ce; color: white; font-size: 20rpx; padding: 4rpx 12rpx; border-radius: 20rpx;">管理员</view>
+        </view>
         <view class="user-rank">
             <text>Trust Score: {{user.trust_score}}</text>
         </view>

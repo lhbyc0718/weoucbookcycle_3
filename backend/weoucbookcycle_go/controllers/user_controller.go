@@ -190,12 +190,35 @@ func (uc *UserController) GetMyProfile(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := config.DB.Preload("Books").Preload("Listings").First(&user, "id = ?", userID).Error; err != nil {
+	if err := config.DB.Preload("Books").Preload("Listings").Preload("WishlistItems").First(&user, "id = ?", userID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
-	c.JSON(http.StatusOK, user)
+	// 构造响应，兼容旧前端逻辑，将 WishlistItems 转换为 wishlist ID 列表
+	userResponse := map[string]interface{}{
+		"id":             user.ID,
+		"username":       user.Username,
+		"email":          user.Email,
+		"avatar":         user.Avatar,
+		"phone":          user.Phone,
+		"bio":            user.Bio,
+		"trustScore":     user.TrustScore,
+		"email_verified": user.EmailVerified,
+		"created_at":     user.CreatedAt,
+		"updated_at":     user.UpdatedAt,
+		"books":          user.Books,
+		"listings":       user.Listings,
+	}
+
+	var wishlistIDs []string
+	for _, item := range user.WishlistItems {
+		wishlistIDs = append(wishlistIDs, item.BookID)
+	}
+	userResponse["wishlist"] = wishlistIDs
+	userResponse["wishlist_items"] = user.WishlistItems
+
+	c.JSON(http.StatusOK, userResponse)
 }
 
 // ToggleWishlist 切换心愿单中的书籍
@@ -214,41 +237,40 @@ func (uc *UserController) ToggleWishlist(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if err := config.DB.First(&user, "id = ?", userID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	// 检查书籍是否存在
+	var book models.Book
+	if err := config.DB.First(&book, "id = ?", body.BookID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Book not found"})
 		return
 	}
 
-	var list []string
-	if len(user.Wishlist) > 0 {
-		if err := json.Unmarshal(user.Wishlist, &list); err != nil {
-			list = []string{}
+	// 检查是否已收藏
+	var wishlistItem models.Wishlist
+	err := config.DB.Where("user_id = ? AND book_id = ?", userID, body.BookID).First(&wishlistItem).Error
+
+	if err == nil {
+		// 已存在 -> 取消收藏
+		if err := config.DB.Delete(&wishlistItem).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove from wishlist"})
+			return
+		}
+	} else {
+		// 不存在 -> 添加收藏
+		newWishlist := models.Wishlist{
+			UserID: userID,
+			BookID: body.BookID,
+		}
+		if err := config.DB.Create(&newWishlist).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add to wishlist"})
+			return
 		}
 	}
 
-	found := false
-	for i, id := range list {
-		if id == body.BookID {
-			// remove
-			list = append(list[:i], list[i+1:]...)
-			found = true
-			break
-		}
-	}
-	if !found {
-		list = append(list, body.BookID)
-	}
+	// 返回当前用户所有收藏的书籍ID列表
+	var bookIDs []string
+	config.DB.Model(&models.Wishlist{}).Where("user_id = ?", userID).Pluck("book_id", &bookIDs)
 
-	b, _ := json.Marshal(list)
-	user.Wishlist = b
-
-	if err := config.DB.Model(&user).Update("wishlist", user.Wishlist).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update wishlist"})
-		return
-	}
-
-	c.JSON(http.StatusOK, list)
+	c.JSON(http.StatusOK, bookIDs)
 }
 
 // EvaluateUser 评价卖家并调整信任分

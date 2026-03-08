@@ -176,8 +176,10 @@ func Logger() gin.HandlerFunc {
 		select {
 		case accessLogChannel <- accessLog:
 		default:
-			// 队列满，直接丢弃（保证请求不被阻塞）
-			log.Printf("Log channel is full, dropping log: %s %s", accessLog.Method, accessLog.Path)
+			// 队列满，降级为同步写入 (但仅记录到Zap，不再尝试Redis)
+			// 避免阻塞且不丢失关键日志
+			log.Printf("Log channel full, switching to sync logging: %s %s", accessLog.Method, accessLog.Path)
+			accessLog.processAccessLog() 
 		}
 
 		// 在响应头中添加请求ID

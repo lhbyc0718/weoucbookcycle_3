@@ -165,6 +165,9 @@ func (fu *FileUploader) UploadFile(c *gin.Context, fieldName string) (*UploadRes
 	return result, nil
 }
 
+// 全局并发上传限制
+var uploadSemaphore = make(chan struct{}, 20)
+
 // UploadFiles 上传多个文件（并发处理）
 func (fu *FileUploader) UploadFiles(c *gin.Context, fieldName string) ([]*UploadResult, error) {
 	form, err := c.MultipartForm()
@@ -215,6 +218,10 @@ func (fu *FileUploader) UploadFiles(c *gin.Context, fieldName string) ([]*Upload
 				errorChan <- fmt.Errorf("failed to seek file %s: %w", f.Filename, err)
 				return
 			}
+
+			// 获取并发令牌
+			uploadSemaphore <- struct{}{}
+			defer func() { <-uploadSemaphore }()
 
 			contentType := http.DetectContentType(buffer)
 			if !strings.HasPrefix(contentType, "image/") {

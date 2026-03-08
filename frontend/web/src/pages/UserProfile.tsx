@@ -11,6 +11,8 @@ interface User {
   avatar: string;
   bio?: string;
   trust_score: number;
+  role?: string;
+  roles?: string[];
   Books?: Book[];
   wishlist?: string;
 }
@@ -106,7 +108,14 @@ export default function UserProfile() {
                     )}
                   </div>
                   <div className="flex-1">
-                    <h1 className="text-xl font-bold">{user.username}</h1>
+                    <div className="flex items-center gap-2">
+                      <h1 className="text-xl font-bold">{user.username}</h1>
+                      {(user.role === 'admin' || user.roles?.includes('admin')) && (
+                        <span className="bg-purple-600 text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <HiBadgeCheck /> 管理员
+                        </span>
+                      )}
+                    </div>
                     <p className="text-blue-100 text-sm mt-1">{user.bio || '暂无简介'}</p>
                     <div className="mt-2 inline-flex items-center px-2 py-0.5 rounded-full bg-blue-700 text-xs">
                       <span>信任分: {user.trust_score}</span>
@@ -126,7 +135,14 @@ export default function UserProfile() {
                       </div>
                     )}
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900">{user.username}</h2>
+                <div className="flex items-center gap-2 justify-center">
+                  <h2 className="text-2xl font-bold text-gray-900">{user.username}</h2>
+                  {(user.role === 'admin' || user.roles?.includes('admin')) && (
+                    <span className="text-purple-600" title="管理员">
+                      <HiBadgeCheck className="text-2xl" />
+                    </span>
+                  )}
+                </div>
                 <p className="text-gray-500 text-sm mt-2 mb-4">{user.bio || '暂无简介'}</p>
                 <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
                    <HiCheckCircle /> 信任分: {user.trust_score}

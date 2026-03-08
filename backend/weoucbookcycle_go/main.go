@@ -67,7 +67,17 @@ func main() {
 
 	// 只有当显式开启 ENABLE_AUTO_MIGRATE=true 时才运行
 	if enableAuto == "true" {
-		if err := config.DB.AutoMigrate(&models.User{}, &models.Book{}, &models.Listing{}, &models.Message{}, &models.Chat{}, &models.ChatUser{}); err != nil {
+		if err := config.DB.AutoMigrate(
+			&models.User{},
+			&models.Book{},
+			&models.Listing{},
+			&models.Message{},
+			&models.Chat{},
+			&models.ChatUser{},
+			&models.Transaction{}, // 新增
+			&models.Order{},       // 新增
+			&models.Wishlist{},    // 新增
+		); err != nil {
 			log.Printf("Warning: auto migrate failed: %v", err)
 		} else {
 			log.Println("✅ AutoMigrate completed")

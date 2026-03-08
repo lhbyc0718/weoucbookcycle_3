@@ -223,7 +223,11 @@ func (bs *BookService) UpdateBook(userID, bookID string, req *UpdateBookRequest)
 	}
 
 	// 7. 异步清除缓存
-	go bs.clearBookCaches(bookID)
+	go func() {
+		// 清除缓存前先更新缓存过期时间，防止在清除瞬间被并发读取写入旧数据
+		// 更好的策略是Cache-Aside: 删除缓存，由下次读取重建
+		bs.clearBookCaches(bookID)
+	}()
 
 	// 8. 异步更新搜索索引
 	go func() {

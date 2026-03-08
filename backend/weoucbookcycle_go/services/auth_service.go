@@ -182,10 +182,12 @@ func (as *AuthService) Register(req *RegisterRequest, clientIP string) (*models.
 		return nil, "", fmt.Errorf("failed to create user: %w", err)
 	}
 
-	// 8. 存储验证码到Redis（30分钟有效）
+	// 8. 存储验证码到Redis（30分钟有效），使用哈希存储，避免明文
+	// 实际生产环境建议对验证码进行Hash后再比对，防止Redis泄露导致验证码泄露
+	verificationCodeHash, _ := bcrypt.GenerateFromPassword([]byte(verificationCode), bcrypt.DefaultCost)
 	verificationKey := fmt.Sprintf("verify:email:%s", req.Email)
 	if config.RedisClient != nil {
-		config.RedisClient.Set(redisCtx, verificationKey, verificationCode, 30*time.Minute)
+		config.RedisClient.Set(redisCtx, verificationKey, string(verificationCodeHash), 30*time.Minute)
 	}
 
 	// 9. 增加注册计数
@@ -521,9 +523,9 @@ func (as *AuthService) Logout(tokenString, userID string) error {
 
 // VerifyEmail 验证邮箱
 func (as *AuthService) VerifyEmail(email, code string) error {
-	// 1. 从Redis获取验证码
+	// 1. 从Redis获取验证码Hash
 	verifyKey := fmt.Sprintf("verify:email:%s", email)
-	storedCode, err := config.RedisClient.Get(redisCtx, verifyKey).Result()
+	storedHash, err := config.RedisClient.Get(redisCtx, verifyKey).Result()
 	if err == redis.Nil {
 		return errors.New("verification code has expired")
 	}
@@ -532,7 +534,7 @@ func (as *AuthService) VerifyEmail(email, code string) error {
 	}
 
 	// 2. 验证验证码
-	if storedCode != code {
+	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(code)); err != nil {
 		// 记录验证失败
 		as.recordVerificationFailure(email, "invalid code")
 		return errors.New("invalid verification code")
@@ -585,8 +587,9 @@ func (as *AuthService) ResendVerificationCode(email string) error {
 	verificationCode := as.generateVerificationCode()
 
 	// 5. 存储到Redis
+	verificationCodeHash, _ := bcrypt.GenerateFromPassword([]byte(verificationCode), bcrypt.DefaultCost)
 	verifyKey := fmt.Sprintf("verify:email:%s", email)
-	config.RedisClient.Set(redisCtx, verifyKey, verificationCode, 30*time.Minute)
+	config.RedisClient.Set(redisCtx, verifyKey, string(verificationCodeHash), 30*time.Minute)
 
 	// 6. 设置发送频率限制（1分钟内不能重复发送）
 	if config.RedisClient != nil {

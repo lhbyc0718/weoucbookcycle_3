@@ -6,6 +6,7 @@ import BookDetail from './pages/BookDetail';
 import Messages from './pages/Messages';
 import ChatDetail from './pages/ChatDetail';
 import UserProfile from './pages/UserProfile';
+import AdminDashboard from './pages/AdminDashboard';
 import Post from './pages/Post';
 import './index.css';
 import { useEffect, useState } from 'react';
@@ -81,6 +82,7 @@ export default function App() {
           <Route path="messages" element={<Messages />} />
           <Route path="chats/:id" element={<ChatDetail />} />
           <Route path="profile" element={<UserProfile />} />
+          <Route path="admin" element={<AdminDashboard />} />
           <Route path="post" element={<Post />} />
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

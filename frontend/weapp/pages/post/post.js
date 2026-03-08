@@ -149,6 +149,37 @@ Page({
       images: (images && images.length > 0) ? images : ['https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=800&h=1200&fit=crop']
     };
 
+    // persist to backend API
+    const app = getApp();
+    wx.request({
+      url: app.globalData.apiBase + '/api/listings',
+      method: 'POST',
+      header: {
+        'Authorization': 'Bearer ' + (wx.getStorageSync('token') || '')
+      },
+      data: {
+        book_id: '', // 如果是新书，后端可能需要处理创建书籍的逻辑，或者这里先调用 createBook
+        // 简化起见，假设后端接收以下字段自动创建书籍和Listing
+        title: title,
+        author: author,
+        price: parseFloat(price),
+        description: 'Newly listed book.',
+        category: selectedTags[0],
+        images: (images && images.length > 0) ? images : [],
+        tags: selectedTags
+      },
+      success: (res) => {
+        if (res.data.code === 20000 || res.statusCode === 200) {
+            console.log('Sync to backend success');
+        } else {
+            console.error('Sync to backend failed', res);
+        }
+      },
+      fail: (err) => {
+        console.error('Sync to backend error', err);
+      }
+    });
+
     // persist to cloud if available
     if (wx.cloud && wx.cloud.database) {
       const db = wx.cloud.database();
