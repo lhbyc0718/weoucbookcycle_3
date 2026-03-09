@@ -1,0 +1,1494 @@
+definitions:
+  controllers.CreateBookRequest:
+    properties:
+      author:
+        maxLength: 100
+        type: string
+      category:
+        type: string
+      condition:
+        enum:
+        - 全新
+        - 九成新
+        - 八成新
+        - 七成新
+        - 其他
+        type: string
+      description:
+        type: string
+      images:
+        items:
+          type: string
+        type: array
+      isbn:
+        type: string
+      price:
+        type: number
+      title:
+        maxLength: 200
+        type: string
+    required:
+    - author
+    - category
+    - condition
+    - price
+    - title
+    type: object
+  controllers.CreateListingRequest:
+    properties:
+      book_id:
+        type: string
+      note:
+        maxLength: 500
+        type: string
+      price:
+        type: number
+    required:
+    - book_id
+    - price
+    type: object
+  controllers.LoginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  controllers.RegisterRequest:
+    properties:
+      email:
+        type: string
+      password:
+        minLength: 8
+        type: string
+      username:
+        maxLength: 50
+        minLength: 3
+        type: string
+    required:
+    - email
+    - password
+    - username
+    type: object
+  controllers.ResendVerificationRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
+  controllers.ResetPasswordRequest:
+    properties:
+      email:
+        type: string
+      new_password:
+        minLength: 8
+        type: string
+      token:
+        type: string
+    required:
+    - email
+    - new_password
+    - token
+    type: object
+  controllers.SearchResult:
+    properties:
+      books:
+        items:
+          $ref: '#/definitions/models.Book'
+        type: array
+      listings:
+        items:
+          $ref: '#/definitions/models.Listing'
+        type: array
+      query:
+        type: string
+      total:
+        type: integer
+      users:
+        items:
+          $ref: '#/definitions/models.User'
+        type: array
+    type: object
+  controllers.SendPasswordResetRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
+  controllers.UpdateBookRequest:
+    properties:
+      author:
+        maxLength: 100
+        type: string
+      category:
+        type: string
+      condition:
+        enum:
+        - 全新
+        - 九成新
+        - 八成新
+        - 七成新
+        - 其他
+        type: string
+      description:
+        type: string
+      images:
+        items:
+          type: string
+        type: array
+      price:
+        type: number
+      status:
+        enum:
+        - 0
+        - 1
+        - 2
+        type: integer
+      title:
+        maxLength: 200
+        type: string
+    type: object
+  controllers.UpdateListingStatusRequest:
+    properties:
+      buyer_id:
+        type: string
+      status:
+        enum:
+        - available
+        - reserved
+        - sold
+        - cancelled
+        type: string
+    required:
+    - status
+    type: object
+  controllers.UpdateProfileRequest:
+    properties:
+      avatar:
+        type: string
+      bio:
+        maxLength: 500
+        type: string
+      phone:
+        type: string
+      username:
+        maxLength: 50
+        minLength: 3
+        type: string
+    type: object
+  controllers.VerifyEmailRequest:
+    properties:
+      code:
+        type: string
+      email:
+        type: string
+    required:
+    - code
+    - email
+    type: object
+  controllers.WeChatLoginRequest:
+    properties:
+      avatar:
+        type: string
+      code:
+        type: string
+      nickname:
+        type: string
+    required:
+    - code
+    type: object
+  models.Book:
+    properties:
+      author:
+        type: string
+      category:
+        type: string
+      condition:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      images:
+        description: 存储JSON数组
+        type: string
+      isbn:
+        type: string
+      like_count:
+        type: integer
+      listings:
+        items:
+          $ref: '#/definitions/models.Listing'
+        type: array
+      price:
+        type: number
+      seller:
+        allOf:
+        - $ref: '#/definitions/models.User'
+        description: 关联关系
+      seller_id:
+        type: string
+      status:
+        type: integer
+      title:
+        type: string
+      updated_at:
+        type: string
+      view_count:
+        type: integer
+    type: object
+  models.Chat:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      last_message:
+        type: string
+      messages:
+        items:
+          $ref: '#/definitions/models.Message'
+        type: array
+      updated_at:
+        type: string
+      users:
+        description: 关联关系
+        items:
+          $ref: '#/definitions/models.ChatUser'
+        type: array
+    type: object
+  models.ChatResponse:
+    properties:
+      id:
+        type: string
+      last_message:
+        type: string
+      messages:
+        items:
+          $ref: '#/definitions/models.Message'
+        type: array
+      unread_count:
+        description: 添加未读数字段
+        type: integer
+      updated_at:
+        type: string
+      users:
+        items:
+          $ref: '#/definitions/models.ChatUser'
+        type: array
+    type: object
+  models.ChatUser:
+    properties:
+      chat:
+        allOf:
+        - $ref: '#/definitions/models.Chat'
+        description: 关联关系
+      chat_id:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      unread_count:
+        type: integer
+      user:
+        $ref: '#/definitions/models.User'
+      user_id:
+        type: string
+    type: object
+  models.Favorite:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      listing:
+        $ref: '#/definitions/models.Listing'
+      listing_id:
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/models.User'
+        description: 关联关系
+      user_id:
+        type: string
+    type: object
+  models.Listing:
+    properties:
+      book:
+        allOf:
+        - $ref: '#/definitions/models.Book'
+        description: 关联关系
+      book_id:
+        type: string
+      buyer:
+        $ref: '#/definitions/models.User'
+      buyer_id:
+        type: string
+      created_at:
+        type: string
+      favorite_count:
+        type: integer
+      favorites:
+        items:
+          $ref: '#/definitions/models.Favorite'
+        type: array
+      id:
+        type: string
+      note:
+        type: string
+      price:
+        type: number
+      seller:
+        $ref: '#/definitions/models.User'
+      seller_id:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.Message:
+    properties:
+      chat:
+        allOf:
+        - $ref: '#/definitions/models.Chat'
+        description: 关联关系
+      chat_id:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      is_read:
+        type: boolean
+      sender:
+        $ref: '#/definitions/models.User'
+      sender_id:
+        type: string
+    type: object
+  models.User:
+    properties:
+      avatar:
+        type: string
+      bio:
+        type: string
+      books:
+        description: 关联关系
+        items:
+          $ref: '#/definitions/models.Book'
+        type: array
+      chat_users:
+        items:
+          $ref: '#/definitions/models.ChatUser'
+        type: array
+      created_at:
+        type: string
+      email:
+        type: string
+      email_verified:
+        type: boolean
+      id:
+        type: string
+      last_login:
+        type: string
+      listings:
+        items:
+          $ref: '#/definitions/models.Listing'
+        type: array
+      login_count:
+        type: integer
+      messages:
+        items:
+          $ref: '#/definitions/models.Message'
+        type: array
+      phone:
+        type: string
+      role:
+        description: 角色管理 (简单实现：admin, user)
+        type: string
+      status:
+        type: integer
+      trustScore:
+        description: TrustScore 用户的信任分（0-100）
+        type: integer
+      updated_at:
+        type: string
+      username:
+        type: string
+      verified_at:
+        type: string
+      wechat_openid:
+        description: 微信开放平台openid，用于小程序登录
+        type: string
+      wishlist_items:
+        description: Wishlist 关联改为独立表
+        items:
+          $ref: '#/definitions/models.Wishlist'
+        type: array
+    type: object
+  models.Wishlist:
+    properties:
+      book:
+        allOf:
+        - $ref: '#/definitions/models.Book'
+        description: 关联
+      book_id:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      user:
+        $ref: '#/definitions/models.User'
+      user_id:
+        type: string
+    type: object
+  services.SystemStats:
+    properties:
+      db_open_conns:
+        type: integer
+      goroutines:
+        type: integer
+      online_users:
+        type: integer
+      redis_hit_rate:
+        type: string
+      websocket_clients:
+        type: integer
+    type: object
+info:
+  contact: {}
+paths:
+  /api/auth/wechat:
+    post:
+      consumes:
+      - application/json
+      description: 使用微信小程序 code 登录，返回 JWT token
+      parameters:
+      - description: 微信登录信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.WeChatLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      tags:
+      - auth
+  /api/v1/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: 用户登录获取JWT token
+      parameters:
+      - description: 登录信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 用户登录
+      tags:
+      - auth
+  /api/v1/auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: 用户登出，将token加入黑名单
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 用户登出
+      tags:
+      - auth
+  /api/v1/auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: 刷新过期的JWT token
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 刷新token
+      tags:
+      - auth
+  /api/v1/auth/register:
+    post:
+      consumes:
+      - application/json
+      description: 创建新用户账号
+      parameters:
+      - description: 注册信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 用户注册
+      tags:
+      - auth
+  /api/v1/auth/resend-verification:
+    post:
+      consumes:
+      - application/json
+      description: 重新发送邮箱验证码
+      parameters:
+      - description: 邮箱地址
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.ResendVerificationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 重新发送验证码
+      tags:
+      - auth
+  /api/v1/auth/reset-password:
+    post:
+      consumes:
+      - application/json
+      description: 重置用户密码
+      parameters:
+      - description: 重置信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.ResetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 重置密码
+      tags:
+      - auth
+  /api/v1/auth/send-password-reset:
+    post:
+      consumes:
+      - application/json
+      description: 发送密码重置邮件
+      parameters:
+      - description: 邮箱地址
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.SendPasswordResetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 发送密码重置令牌
+      tags:
+      - auth
+  /api/v1/auth/verify-email:
+    post:
+      consumes:
+      - application/json
+      description: 验证用户邮箱
+      parameters:
+      - description: 验证信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.VerifyEmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 验证邮箱
+      tags:
+      - auth
+  /api/v1/books:
+    get:
+      consumes:
+      - application/json
+      description: 分页获取书籍列表，支持筛选和排序
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: limit
+        type: integer
+      - description: 书籍分类
+        in: query
+        name: category
+        type: string
+      - description: 作者
+        in: query
+        name: author
+        type: string
+      - default: created_at
+        description: 排序方式
+        in: query
+        name: sort
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 获取书籍列表
+      tags:
+      - books
+    post:
+      consumes:
+      - application/json
+      description: 创建新的书籍信息
+      parameters:
+      - description: 书籍信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.CreateBookRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Book'
+      security:
+      - Bearer: []
+      summary: 创建书籍
+      tags:
+      - books
+  /api/v1/books/:id/like:
+    post:
+      consumes:
+      - application/json
+      description: 点赞或取消点赞书籍
+      parameters:
+      - description: 书籍ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 点赞书籍
+      tags:
+      - books
+  /api/v1/books/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除书籍（软删除）
+      parameters:
+      - description: 书籍ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 删除书籍
+      tags:
+      - books
+    get:
+      consumes:
+      - application/json
+      description: 根据书籍ID获取详细信息
+      parameters:
+      - description: 书籍ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Book'
+      summary: 获取书籍详情
+      tags:
+      - books
+    put:
+      consumes:
+      - application/json
+      description: 更新书籍信息
+      parameters:
+      - description: 书籍ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 书籍信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.UpdateBookRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Book'
+      security:
+      - Bearer: []
+      summary: 更新书籍
+      tags:
+      - books
+  /api/v1/books/hot:
+    get:
+      consumes:
+      - application/json
+      description: 获取热门/推荐书籍列表（从Redis缓存）
+      parameters:
+      - default: 10
+        description: 数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Book'
+            type: array
+      summary: 获取热门书籍
+      tags:
+      - books
+  /api/v1/books/recommendations:
+    get:
+      consumes:
+      - application/json
+      description: 基于用户历史获取推荐书籍
+      parameters:
+      - default: 10
+        description: 数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 获取推荐书籍
+      tags:
+      - books
+  /api/v1/books/search:
+    get:
+      consumes:
+      - application/json
+      description: 全文搜索书籍
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: q
+        required: true
+        type: string
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 搜索书籍
+      tags:
+      - books
+  /api/v1/chats:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前用户的聊天列表，包含每个聊天的未读消息数
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.ChatResponse'
+            type: array
+      security:
+      - Bearer: []
+      summary: 获取聊天列表
+      tags:
+      - chats
+  /api/v1/chats/:id:
+    delete:
+      consumes:
+      - application/json
+      description: 删除指定聊天
+      parameters:
+      - description: 聊天ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 删除聊天
+      tags:
+      - chats
+  /api/v1/chats/:id/read:
+    put:
+      consumes:
+      - application/json
+      description: 标记指定聊天的所有未读消息为已读
+      parameters:
+      - description: 聊天ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 标记消息为已读
+      tags:
+      - chats
+  /api/v1/chats/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 根据聊天ID获取详细信息
+      parameters:
+      - description: 聊天ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Chat'
+      security:
+      - Bearer: []
+      summary: 获取聊天详情
+      tags:
+      - chats
+  /api/v1/chats/{id}/messages:
+    get:
+      consumes:
+      - application/json
+      description: 获取聊天的消息列表（分页）
+      parameters:
+      - description: 聊天ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 50
+        description: 每页数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 获取聊天消息
+      tags:
+      - chats
+    post:
+      consumes:
+      - application/json
+      description: 在指定聊天中发送新消息
+      parameters:
+      - description: 聊天ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 消息内容
+        in: body
+        name: request
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Message'
+      security:
+      - Bearer: []
+      summary: 发送消息
+      tags:
+      - chats
+  /api/v1/chats/online-users:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前在线的用户列表
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 获取在线用户列表
+      tags:
+      - chats
+  /api/v1/chats/unread:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前用户的所有未读消息数量
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 获取未读消息数
+      tags:
+      - chats
+  /api/v1/listings:
+    get:
+      consumes:
+      - application/json
+      description: 分页获取发布列表
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: limit
+        type: integer
+      - description: 状态筛选
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 获取发布列表
+      tags:
+      - listings
+    post:
+      consumes:
+      - application/json
+      description: 创建新的书籍发布
+      parameters:
+      - description: 发布信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.CreateListingRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Listing'
+      security:
+      - Bearer: []
+      summary: 创建发布
+      tags:
+      - listings
+  /api/v1/listings/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 根据发布ID获取详细信息
+      parameters:
+      - description: 发布ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Listing'
+      summary: 获取发布详情
+      tags:
+      - listings
+  /api/v1/listings/{id}/favorite:
+    post:
+      consumes:
+      - application/json
+      description: 收藏或取消收藏发布
+      parameters:
+      - description: 发布ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 收藏发布
+      tags:
+      - listings
+  /api/v1/listings/{id}/status:
+    put:
+      consumes:
+      - application/json
+      description: 更新发布的状态（available/reserved/sold/cancelled）
+      parameters:
+      - description: 发布ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 状态更新信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.UpdateListingStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Listing'
+      security:
+      - Bearer: []
+      summary: 更新发布状态
+      tags:
+      - listings
+  /api/v1/listings/mine:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前登录用户的发布列表
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Listing'
+            type: array
+      security:
+      - Bearer: []
+      summary: 获取我的发布列表
+      tags:
+      - listings
+  /api/v1/monitor/stats:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前系统的运行状态（协程数、在线用户、DB连接等）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/services.SystemStats'
+      security:
+      - Bearer: []
+      summary: 获取系统统计信息
+      tags:
+      - monitor
+  /api/v1/search:
+    get:
+      consumes:
+      - application/json
+      description: 跨多个模块进行搜索
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: q
+        required: true
+        type: string
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/controllers.SearchResult'
+      summary: 全局搜索
+      tags:
+      - search
+  /api/v1/search/books:
+    get:
+      consumes:
+      - application/json
+      description: 搜索书籍
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: q
+        required: true
+        type: string
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: limit
+        type: integer
+      - description: 分类筛选
+        in: query
+        name: category
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 搜索书籍
+      tags:
+      - search
+  /api/v1/search/hot:
+    get:
+      consumes:
+      - application/json
+      description: 获取最近搜索的热门关键词
+      parameters:
+      - default: 10
+        description: 数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+      summary: 获取热门搜索词
+      tags:
+      - search
+  /api/v1/search/suggestions:
+    get:
+      consumes:
+      - application/json
+      description: 根据输入获取搜索建议
+      parameters:
+      - description: 输入关键词
+        in: query
+        name: q
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+      summary: 获取搜索建议
+      tags:
+      - search
+  /api/v1/search/users:
+    get:
+      consumes:
+      - application/json
+      description: 搜索用户
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: q
+        required: true
+        type: string
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 搜索用户
+      tags:
+      - search
+  /api/v1/users/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 根据用户ID获取用户详细信息
+      parameters:
+      - description: 用户ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.User'
+      summary: 获取用户资料
+      tags:
+      - users
+  /api/v1/users/active:
+    get:
+      consumes:
+      - application/json
+      description: 获取最近的活跃用户，用于消息页面
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.User'
+            type: array
+      summary: 获取活跃用户列表
+      tags:
+      - users
+  /api/v1/users/online:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前在线的用户列表
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 获取在线用户列表
+      tags:
+      - users
+  /api/v1/users/profile:
+    put:
+      consumes:
+      - application/json
+      description: 更新当前登录用户的资料信息
+      parameters:
+      - description: 用户资料
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/controllers.UpdateProfileRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 更新用户资料
+      tags:
+      - users
+swagger: "2.0"

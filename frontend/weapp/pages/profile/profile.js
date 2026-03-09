@@ -1,5 +1,6 @@
 // pages/profile/profile.js
 const app = getApp();
+const storage = require('../../utils/storage');
 
 Page({
   data: {
@@ -73,8 +74,8 @@ Page({
   onLogoutTap: function() {
     app.globalData.userInfo = null;
     app.globalData.token = null;
-    wx.removeStorageSync('userInfo');
-    wx.removeStorageSync('token');
+    storage.remove('userInfo');
+    storage.remove('token');
     this.setData({
         isLoggedIn: false,
         user: { username: 'Guest', avatar: '', trust_score: 0 }

@@ -1,31 +1,26 @@
 // pages/bookdetail/bookdetail.js
-const app = getApp();
+const { requestWithRetry } = require('../../utils/request');
+const storage = require('../../utils/storage');
+const config = require('../../config/index');
+const mockBooks = require('../../mock/books');
+// getApp might not be available in test environment immediately
+const getAppSafe = () => {
+    try {
+        return getApp();
+    } catch (e) {
+        return { globalData: { apiBase: 'http://localhost:8080' } };
+    }
+};
+const app = getAppSafe();
 
 Page({
   data: {
     bookId: '',
-    book: {
-      title: '',
-      author: '',
-      cover: '',
-      price: 0,
-      condition: '',
-      description: '',
-      category: '',
-      tags: [],
-      location: '',
-      shippingTime: '',
-      images: []
-    },
-    seller: {
-      id: '',
-      name: '',
-      avatar: '',
-      sales: 0,
-      trustScore: 0,
-      verified: false
-    },
-    isWishlisted: false
+    book: null,
+    seller: null,
+    isWishlisted: false,
+    loading: true,
+    error: null
   },
 
   onLoad: function(options) {
@@ -33,163 +28,170 @@ Page({
     this.setData({ bookId: bookId });
     this.loadBook(bookId);
     
-    // Check wishlist
-    const wishlist = wx.getStorageSync('wishlist') || [];
+    // Check wishlist using storage utility
+    const wishlist = storage.get('wishlist') || [];
     this.setData({ isWishlisted: wishlist.indexOf(bookId) > -1 });
   },
 
+  /**
+   * Loads book details by ID.
+   * First tries to fetch from Cloud Database (if available), then falls back to REST API.
+   * If both fail, it attempts to load from local storage.
+   * @param {string} bookId - The ID of the book to load.
+   */
   loadBook: function(bookId) {
     const that = this;
+    this.setData({ loading: true, error: null });
     
-    // 首先尝试从云数据库获取
-    if (wx.cloud && wx.cloud.database) {
+    // 0. Use Mock Data if configured
+    if (config.useMock) {
+        console.log('Using mock data for book:', bookId);
+        const book = mockBooks.getById(bookId);
+        if (book) {
+            // Simulate network delay
+            setTimeout(() => {
+                that.setData({ book: book, loading: false });
+                // Mock seller info
+                that.setData({
+                    seller: {
+                        id: book.sellerId,
+                        name: 'Mock Seller',
+                        avatar: '',
+                        verified: true
+                    }
+                });
+            }, 500);
+        } else {
+            that.handleError('Book not found (Mock)');
+        }
+        return;
+    }
+
+    // 1. Try to get from passed event channel or global data if available (optional optimization)
+
+    // 2. Try API/Cloud
+    if (config.features.enableCloud && wx.cloud && wx.cloud.database) {
       const db = wx.cloud.database();
       db.collection('books').doc(bookId).get().then(res => {
         const book = res.data;
         if (book) {
           that.setData({ book: book });
-          // 获取卖家信息
           that.loadSellerInfo(book.sellerId);
         } else {
-          that.useMockBook(bookId);
+            that.handleError('Book not found');
         }
       }).catch(err => {
-        console.log('从云获取失败，使用本地数据', err);
-        that.useMockBook(bookId);
+        console.error('Cloud fetch failed', err);
+        that.loadFromLocal(bookId);
       });
     } else {
-      // 没有云开发，使用本地数据
-      that.useMockBook(bookId);
+      // Use API
+      requestWithRetry({
+          url: app.globalData.apiBase + '/api/books/' + bookId,
+          method: 'GET'
+      }).then(res => {
+          const book = res.data.data || res.data; // Adapt to API response
+          that.setData({ book: book });
+          if (book.sellerId) {
+              that.loadSellerInfo(book.sellerId);
+          } else {
+              that.setData({ loading: false });
+          }
+      }).catch(err => {
+          console.error('API fetch failed', err);
+          that.loadFromLocal(bookId);
+      });
     }
   },
 
+  /**
+   * Fallback method to load book from local storage.
+   * Useful when offline or when API fails.
+   * @param {string} bookId - The ID of the book to find.
+   */
+  loadFromLocal: function(bookId) {
+      // Try to find in local storage (e.g. my listings or cached books)
+      const myBooks = storage.get('myBooks') || [];
+      const foundBook = myBooks.find(b => b.id === bookId || b._id === bookId);
+      
+      if (foundBook) {
+          this.setData({ book: foundBook, loading: false });
+          // If it's my book, I am the seller
+          if (app.globalData.userInfo) {
+              this.setData({
+                  seller: {
+                      id: app.globalData.userInfo.id || app.globalData.userInfo._id,
+                      name: app.globalData.userInfo.nickname || app.globalData.userInfo.name,
+                      avatar: app.globalData.userInfo.avatarUrl || app.globalData.userInfo.avatar,
+                      verified: true
+                  }
+              });
+          }
+      } else {
+          this.handleError('Cannot load book details, please check network');
+      }
+  },
+
+  handleError: function(msg) {
+      this.setData({ loading: false, error: msg });
+      wx.showToast({ title: msg, icon: 'none' });
+  },
+
+  /**
+   * Loads seller information by ID.
+   * @param {string} sellerId - The ID of the seller.
+   */
   loadSellerInfo: function(sellerId) {
     const that = this;
-    if (wx.cloud && wx.cloud.database) {
+    if (!sellerId) return;
+
+    if (config.features.enableCloud && wx.cloud && wx.cloud.database) {
       const db = wx.cloud.database();
-      db.collection('users').where({
-        _id: sellerId
-      }).get().then(res => {
-        if (res.data && res.data.length > 0) {
-          const user = res.data[0];
+      db.collection('users').doc(sellerId).get().then(res => {
           that.setData({
             seller: {
               id: sellerId,
-              name: user.name || 'Unknown',
-              avatar: user.avatar || '',
-              sales: user.sales || 0,
-              trustScore: user.trustScore || 0,
-              verified: user.verified || false
-            }
+              name: res.data.name || 'Unknown',
+              avatar: res.data.avatar || '',
+              sales: res.data.sales || 0,
+              trustScore: res.data.trustScore || 0,
+              verified: res.data.verified || false
+            },
+            loading: false
           });
-        } else {
-          that.setData({ seller: that.getMockSeller(sellerId) });
-        }
       }).catch(() => {
-        that.setData({ seller: that.getMockSeller(sellerId) });
+        that.setData({ loading: false }); // Ignore seller error, show book
       });
     } else {
-      that.setData({ seller: that.getMockSeller(sellerId) });
+        requestWithRetry({
+            url: app.globalData.apiBase + '/api/users/' + sellerId,
+            method: 'GET'
+        }).then(res => {
+            const user = res.data.data || res.data;
+            that.setData({
+                seller: {
+                    id: sellerId,
+                    name: user.name || 'Unknown',
+                    avatar: user.avatar || '',
+                    sales: user.sales || 0,
+                    trustScore: user.trustScore || 0,
+                    verified: user.verified || false
+                },
+                loading: false
+            });
+        }).catch(() => {
+            that.setData({ loading: false });
+        });
     }
   },
 
-  useMockBook: function(bookId) {
-    const that = this;
-    // 先检查本地存储的书籍
-    const localBooks = wx.getStorageSync('myBooks') || [];
-    let foundBook = localBooks.find(b => b.id === bookId);
-    
-    if (foundBook) {
-      that.setData({ book: foundBook });
-      that.loadSellerInfo(foundBook.sellerId);
-      return;
-    }
-    
-    // 使用mock数据
-    const mockBook = that.getMockBook(bookId);
-    const mockSeller = that.getMockSeller(mockBook.sellerId);
-    that.setData({
-      book: mockBook,
-      seller: mockSeller
-    });
-  },
-
-  getMockBook: function(id) {
-    const books = [
-      {
-        id: '1',
-        title: 'The Great Gatsby (Hardcover)',
-        author: 'F. Scott Fitzgerald',
-        cover: 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400&h=600&fit=crop',
-        price: 25,
-        condition: '98% New',
-        sellerId: 'alex',
-        description: 'Classic hardcover edition. Barely read, spine is perfect. No markings inside.',
-        category: 'Literature',
-        tags: ['Classic', 'Fiction'],
-        location: 'Shanghai, CN',
-        shippingTime: 'Ships within 24h',
-        images: ['https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=800&h=1200&fit=crop']
-      },
-      {
-        id: '2',
-        title: 'The Design of Everyday Things',
-        author: 'Don Norman',
-        cover: 'https://images.unsplash.com/photo-1589829085413-56de8ae18c73?w=400&h=600&fit=crop',
-        price: 45,
-        condition: 'Like New',
-        sellerId: 'alex',
-        description: 'Original English version, bought 2 months ago for a design course.',
-        category: 'Design',
-        tags: ['UX', 'Design', 'Textbook'],
-        location: 'Shanghai, CN',
-        shippingTime: 'Ships within 24h',
-        images: ['https://images.unsplash.com/photo-1589829085413-56de8ae18c73?w=800&h=1200&fit=crop']
-      },
-      {
-        id: '3',
-        title: 'Sapiens: A Brief History',
-        author: 'Yuval Noah Harari',
-        cover: 'https://images.unsplash.com/photo-1541963463532-d68292c34b19?w=400&h=600&fit=crop',
-        price: 35,
-        condition: 'New',
-        sellerId: 'sarah',
-        description: 'Brand new copy, unwanted gift.',
-        category: 'History',
-        tags: ['History', 'Bestseller'],
-        location: 'Beijing, CN',
-        shippingTime: 'Ships within 48h',
-        images: ['https://images.unsplash.com/photo-1541963463532-d68292c34b19?w=800&h=1200&fit=crop']
-      }
-    ];
-    return books.find(b => b.id === id) || books[0];
-  },
-
-  getMockSeller: function(sellerId) {
-    const sellers = {
-      'alex': {
-        id: 'alex',
-        name: 'Alex Reads',
-        avatar: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150&h=150&fit=crop',
-        sales: 156,
-        trustScore: 100,
-        verified: true
-      },
-      'sarah': {
-        id: 'sarah',
-        name: 'Sarah Jenkins',
-        avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop',
-        sales: 89,
-        trustScore: 95,
-        verified: true
-      }
-    };
-    return sellers[sellerId] || sellers['alex'];
-  },
-
+  /**
+   * Toggles the wishlist status of the current book.
+   * Updates local storage and component state.
+   */
   onToggleWishlist: function() {
     const bookId = this.data.bookId;
-    let wishlist = wx.getStorageSync('wishlist') || [];
+    let wishlist = storage.get('wishlist') || [];
     
     const index = wishlist.indexOf(bookId);
     if (index > -1) {
@@ -198,7 +200,7 @@ Page({
       wishlist.push(bookId);
     }
     
-    wx.setStorageSync('wishlist', wishlist);
+    storage.set('wishlist', wishlist);
     this.setData({ isWishlisted: index === -1 });
     
     wx.showToast({
@@ -207,8 +209,12 @@ Page({
     });
   },
 
+  /**
+   * Navigates to the chat page with the seller.
+   */
   onChatSeller: function() {
-    const sellerId = this.data.book.sellerId;
+    if (!this.data.seller) return;
+    const sellerId = this.data.seller.id || this.data.seller._id;
     wx.navigateTo({
       url: '/pages/chatdetail/chatdetail?userId=' + sellerId
     });

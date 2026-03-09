@@ -1,3 +1,8 @@
+/**
+ * @file websocket.js
+ * @description Manages WebSocket connections for real-time chat and notifications.
+ * Handles connection, reconnection, heartbeats, and message dispatching.
+ */
 class WebSocketService {
   constructor() {
     this.url = '';
@@ -10,21 +15,30 @@ class WebSocketService {
     this.reconnectTimer = null;
   }
 
+  /**
+   * Initializes the WebSocket service with a URL.
+   * If a token exists, it attempts to connect immediately.
+   * @param {string} url - The WebSocket server URL.
+   */
   init(url) {
     this.url = url;
-    // 如果已有token，尝试连接；否则等待登录后再连接
+    // If token exists, try to connect; otherwise wait for login
     const token = wx.getStorageSync('token');
     if (token) {
         this.connect();
     }
   }
 
+  /**
+   * Establishes the WebSocket connection.
+   * Attaches token to the URL query parameters.
+   */
   connect() {
     if (this.socketOpen) return;
     
     const token = wx.getStorageSync('token');
     if (!token) {
-        console.log('WebSocket: No token, skipping connection');
+        console.warn('WebSocket: No token, skipping connection');
         return;
     }
 
@@ -72,6 +86,9 @@ class WebSocketService {
     });
   }
 
+  /**
+   * Schedules a reconnection attempt.
+   */
   reconnect() {
     if (this.socketOpen) return;
     console.log(`Reconnecting in ${this.reconnectInterval}ms...`);
@@ -81,6 +98,9 @@ class WebSocketService {
     }, this.reconnectInterval);
   }
 
+  /**
+   * Starts the heartbeat mechanism to keep the connection alive.
+   */
   startHeartbeat() {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
@@ -100,6 +120,9 @@ class WebSocketService {
     }, this.heartbeatInterval);
   }
 
+  /**
+   * Stops the heartbeat mechanism.
+   */
   stopHeartbeat() {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
@@ -107,6 +130,12 @@ class WebSocketService {
     }
   }
 
+  /**
+   * Handles incoming WebSocket messages.
+   * Dispatches messages to the current page if applicable.
+   * Updates global unread count.
+   * @param {Object} res - The message event object.
+   */
   onMessage(res) {
     console.log('Received message:', res.data);
     if (res.data === 'pong') {
@@ -117,28 +146,28 @@ class WebSocketService {
     try {
       const msg = JSON.parse(res.data);
       
-      // 获取当前页面
+      // Get current page
       const pages = getCurrentPages();
       const currentPage = pages[pages.length - 1];
       
-      // 如果当前页面是聊天详情页，直接更新消息列表
+      // If current page is chat detail, update message list directly
       if (currentPage && currentPage.route && currentPage.route.includes('chatdetail')) {
         if (currentPage.onNewMessage) {
           currentPage.onNewMessage(msg);
         }
       }
       
-      // 更新未读数 (简单模拟，实际应该存入全局状态)
+      // Update unread count (simple simulation, should use global state management)
       const app = getApp();
       if (app && app.globalData) {
         app.globalData.unreadCount = (app.globalData.unreadCount || 0) + 1;
-        // 如果有TabBar，更新Badge
+        // If has TabBar, update Badge
         if (typeof wx.setTabBarBadge === 'function') {
-           // wx.setTabBarBadge(...) // 需要判断是否在TabBar页面
+           // wx.setTabBarBadge(...) // Need to check if on TabBar page
         }
       }
       
-      // 触发全局事件 (如果当前页面实现了onMessage)
+      // Trigger global event (if current page implements onMessage)
       if (currentPage && currentPage.onMessage) {
         currentPage.onMessage(msg);
       }
@@ -148,6 +177,9 @@ class WebSocketService {
     }
   }
   
+  /**
+   * Closes the WebSocket connection and stops reconnection attempts.
+   */
   close() {
       this.shouldReconnect = false;
       this.stopHeartbeat();

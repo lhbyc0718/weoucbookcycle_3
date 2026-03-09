@@ -1,5 +1,6 @@
 // pages/messages/messages.js
 const app = getApp();
+const storage = require('../../utils/storage');
 
 Page({
   data: {
@@ -28,7 +29,7 @@ Page({
           onChange: function(snapshot) {
             // merge incoming cloud messages into local store and notify
             const docs = snapshot.docs || [];
-            const stored = wx.getStorageSync('messages') || {};
+            const stored = storage.get('messages') || {};
             let updated = false;
             docs.forEach(m => {
               const chatId = m.chatId;
@@ -39,7 +40,7 @@ Page({
               }
             });
             if (updated) {
-              try { wx.setStorageSync('messages', stored); } catch (e) {}
+              storage.set('messages', stored);
               that.loadData();
               try { wx.showToast({ title: '您有新消息', icon: 'none', duration: 1500 }); wx.vibrateShort && wx.vibrateShort(); } catch (e) {}
             }
@@ -82,7 +83,7 @@ Page({
         const chatsArr = cRes.data || [];
         const users = {};
         usersArr.forEach(u => { users[u._openid] = u; });
-        const storedMessagesMap = wx.getStorageSync('messages') || {};
+        const storedMessagesMap = storage.get('messages') || {};
 
         const processedChats = chatsArr.map(chat => {
           const otherUserId = chat.participants ? (chat.participants.find(p => p !== that.globalData.userInfo.id) || chat.participants[0]) : '';
@@ -139,7 +140,7 @@ Page({
           success: function(res) {
             const users = res.data.users || {};
             const chats = res.data.chats || [];
-            const storedMessagesMap = wx.getStorageSync('messages') || {};
+            const storedMessagesMap = storage.get('messages') || {};
             const processedChats = chats.map(chat => {
               const otherUserId = chat.participants ? (chat.participants.find(p => p !== 'me') || 'alex') : 'alex';
               const user = users[otherUserId] || {};
@@ -158,25 +159,24 @@ Page({
             that.setData({ users: users, chats: processedChats, activeUsers: activeUsersList, filteredChats: processedChats });
           },
           fail: function() {
-            const mockChats = that.getMockChats();
-            const mockUsers = that.getMockUsers();
-            const storedMessagesMap = wx.getStorageSync('messages') || {};
-            const processedChats = mockChats.map(chat => {
-              const otherUserId = chat.participants ? (chat.participants.find(p => p !== 'me') || 'alex') : 'alex';
-              const user = mockUsers[otherUserId] || {};
-              const localMsgs = storedMessagesMap[chat.id] || [];
-              const lastLocal = localMsgs.length ? localMsgs[localMsgs.length - 1] : null;
-              return {
-                ...chat,
-                name: user.name || 'Unknown',
-                avatar: user.avatar || '',
-                lastMessage: lastLocal ? lastLocal.text : (chat.lastMessage || ''),
-                lastMessageTime: lastLocal ? lastLocal.timestamp : (chat.lastMessageTime || ''),
-                unreadCount: chat.unreadCount || 0
-              };
-            });
-            const activeUsersList = Object.values(mockUsers).filter(u => u && u.id !== 'me');
-            that.setData({ users: mockUsers, chats: processedChats, activeUsers: activeUsersList, filteredChats: processedChats });
+            // Removed mock data fallback, just show empty state or cached
+             const storedMessagesMap = storage.get('messages') || {};
+             // We can at least show local chats
+             const processedChats = [];
+             Object.keys(storedMessagesMap).forEach(localChatId => {
+                const msgs = storedMessagesMap[localChatId];
+                const last = msgs && msgs.length ? msgs[msgs.length - 1] : null;
+                processedChats.push({
+                    id: localChatId,
+                    participants: ['me'],
+                    name: 'Offline Chat',
+                    avatar: '',
+                    lastMessage: last ? last.text : '',
+                    lastMessageTime: last ? last.timestamp : '',
+                    unreadCount: 0
+                });
+             });
+             that.setData({ users: {}, chats: processedChats, activeUsers: [], filteredChats: processedChats });
           }
         });
       });
@@ -187,7 +187,7 @@ Page({
         success: function(res) {
           const users = res.data.users || {};
           const chats = res.data.chats || [];
-          const storedMessagesMap = wx.getStorageSync('messages') || {};
+          const storedMessagesMap = storage.get('messages') || {};
           const processedChats = chats.map(chat => {
             const otherUserId = chat.participants ? (chat.participants.find(p => p !== 'me') || 'alex') : 'alex';
             const user = users[otherUserId] || {};
@@ -207,34 +207,32 @@ Page({
           that.setData({ users: users, chats: processedChats, activeUsers: activeUsersList, filteredChats: processedChats });
         },
         fail: function() {
-          const mockChats = that.getMockChats();
-          const mockUsers = that.getMockUsers();
-          const storedMessagesMap = wx.getStorageSync('messages') || {};
-          const processedChats = mockChats.map(chat => {
-            const otherUserId = chat.participants ? (chat.participants.find(p => p !== 'me') || 'alex') : 'alex';
-            const user = mockUsers[otherUserId] || {};
-            const localMsgs = storedMessagesMap[chat.id] || [];
-            const lastLocal = localMsgs.length ? localMsgs[localMsgs.length - 1] : null;
-            return {
-              ...chat,
-              name: user.name || 'Unknown',
-              avatar: user.avatar || '',
-              lastMessage: lastLocal ? lastLocal.text : (chat.lastMessage || ''),
-              lastMessageTime: lastLocal ? lastLocal.timestamp : (chat.lastMessageTime || ''),
-              unreadCount: chat.unreadCount || 0
-            };
-          });
-          const activeUsersList = Object.values(mockUsers).filter(u => u && u.id !== 'me');
-          that.setData({ users: mockUsers, chats: processedChats, activeUsers: activeUsersList, filteredChats: processedChats });
+           // Removed mock data fallback
+           const storedMessagesMap = storage.get('messages') || {};
+           const processedChats = [];
+           Object.keys(storedMessagesMap).forEach(localChatId => {
+              const msgs = storedMessagesMap[localChatId];
+              const last = msgs && msgs.length ? msgs[msgs.length - 1] : null;
+              processedChats.push({
+                  id: localChatId,
+                  participants: ['me'],
+                  name: 'Offline Chat',
+                  avatar: '',
+                  lastMessage: last ? last.text : '',
+                  lastMessageTime: last ? last.timestamp : '',
+                  unreadCount: 0
+              });
+           });
+           that.setData({ users: {}, chats: processedChats, activeUsers: [], filteredChats: processedChats });
         }
       });
     }
   },
 
   checkForIncomingMessages: function() {
-    const storedMessagesMap = wx.getStorageSync('messages') || {};
-    const lastSeen = wx.getStorageSync('lastSeen') || {};
-    const notifiedLast = wx.getStorageSync('notifiedLast') || {};
+    const storedMessagesMap = storage.get('messages') || {};
+    const lastSeen = storage.get('lastSeen') || {};
+    const notifiedLast = storage.get('notifiedLast') || {};
     const chats = this.data.chats || [];
     let sawNew = false;
 
@@ -275,8 +273,8 @@ Page({
         });
 
         // save merged messages locally
-        try { wx.setStorageSync('messages', messagesMap); } catch (e) {}
-        try { wx.setStorageSync('notifiedLast', notifiedLast); } catch (e) {}
+        storage.set('messages', messagesMap);
+        storage.set('notifiedLast', notifiedLast);
 
         if (sawNew) {
           this.setData({ chats: chats, filteredChats: chats });
@@ -323,39 +321,7 @@ Page({
     }
   },
 
-  getMockUsers: function() {
-    return {
-      'alex': {
-        id: 'alex',
-        name: 'Alex Reads',
-        avatar: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=150&h=150&fit=crop'
-      },
-      'sarah': {
-        id: 'sarah',
-        name: 'Sarah Jenkins',
-        avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop'
-      }
-    };
-  },
-
-  getMockChats: function() {
-    return [
-      {
-        id: '1',
-        participants: ['me', 'alex'],
-        lastMessage: "I can send a close-up photo if you'd like?",
-        lastMessageTime: '10:26 AM',
-        unreadCount: 0
-      },
-      {
-        id: '2',
-        participants: ['me', 'sarah'],
-        lastMessage: 'Is the book "Sapiens" still available?',
-        lastMessageTime: '10:42 AM',
-        unreadCount: 1
-      }
-    ];
-  },
+  // Removed mock data functions
 
   onSearchInput: function(e) {
     const query = e.detail.value;

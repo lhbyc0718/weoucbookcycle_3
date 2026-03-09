@@ -69,6 +69,12 @@ go build -o bin/server ./...
 The server performs automatic database migrations when `ENABLE_AUTO_MIGRATE`
 is set to `true` (default in non‑release modes).
 
+## API Documentation
+To generate Swagger API documentation:
+1.  Install swag: `go install github.com/swaggo/swag/cmd/swag@latest`
+2.  Run: `swag init -g routes/routes.go -o docs`
+3.  Access docs at `/swagger/index.html` (if configured in routes).
+
 ## Notes
 
 - CORS origins can be controlled via `ALLOW_ORIGINS` (comma separated).

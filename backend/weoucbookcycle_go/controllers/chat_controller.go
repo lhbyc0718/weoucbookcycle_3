@@ -45,7 +45,7 @@ func (cc *ChatController) processMessage(chatID, userID, content string) error {
 // @Accept json
 // @Produce json
 // @Security Bearer
-// @Success 200 {array} ChatResponse
+// @Success 200 {array} models.ChatResponse
 // @Router /api/v1/chats [get]
 // GetChats 获取聊天列表
 func (cc *ChatController) GetChats(c *gin.Context) {

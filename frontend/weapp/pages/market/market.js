@@ -1,5 +1,8 @@
 // pages/market/market.js
 const app = getApp();
+const debounce = require('../../utils/debounce');
+const { requestWithRetry } = require('../../utils/request');
+const storage = require('../../utils/storage');
 
 Page({
   data: {
@@ -28,21 +31,21 @@ Page({
 
   onLoad: function() {
     this.loadBooks(false);
-    const wishlist = wx.getStorageSync('wishlist') || [];
+    const wishlist = storage.get('wishlist') || [];
     this.setData({ wishlist });
+
+    // Initialize debounced search
+    this.debouncedSearch = debounce((query) => {
+      this.setData({ searchQuery: query });
+      this.filterBooks();
+    }, 300);
   },
 
   onShow: function() {
-    // onShow usually doesn't need to reload everything if we want to keep scroll position, 
-    // but if we want to refresh data, we might. 
-    // The original code called loadBooks() here. 
-    // To avoid resetting pagination on every show (like returning from detail), maybe we should check if data exists?
-    // But strictly following "Update loadBooks to accept loadMore", I will adjust the call.
-    // If we want to refresh, we should probably reset to page 1.
     if (this.data.books.length === 0) {
       this.loadBooks(false);
     }
-    const wishlist = wx.getStorageSync('wishlist') || (getApp() && getApp().globalData && getApp().globalData.wishlist) || [];
+    const wishlist = storage.get('wishlist') || (getApp() && getApp().globalData && getApp().globalData.wishlist) || [];
     this.setData({ wishlist });
   },
 
@@ -60,15 +63,15 @@ Page({
     
     const page = loadMore ? this.data.page + 1 : 1;
     
-    // Always use self-hosted server
-    wx.request({
+    // Use unified request with retry
+    requestWithRetry({
       url: app.globalData.apiBase + '/api/books', 
       data: {
         page: page,
-        limit: 10 // Assuming a default limit
+        limit: 10
       },
-      method: 'GET',
-      success: function(res) {
+      method: 'GET'
+    }).then(res => {
         let newBooks = [];
         // Handle different response structures
         if (res.data && Array.isArray(res.data)) {
@@ -84,42 +87,32 @@ Page({
         
         let allBooks = loadMore ? that.data.books.concat(newBooks) : newBooks;
         
-        // If we are loading more, we might want to merge conditions/locations or just keep them?
-        // The original logic replaced them. Let's merge them to be safe or re-calculate from allBooks.
         const allConditions = [...new Set(allBooks.map(b => b.condition).filter(Boolean))];
         const allLocations = [...new Set(allBooks.map(b => b.location).filter(Boolean))];
 
         that.setData({ 
             books: allBooks, 
-            filteredBooks: allBooks, // Note: This resets filters. Ideally we should re-apply filters.
+            filteredBooks: allBooks, 
             conditions: allConditions, 
             locations: allLocations,
             loading: false,
             page: page,
-            hasMore: newBooks.length > 0 // Simple check, or check if newBooks.length === limit
+            hasMore: newBooks.length > 0 
         });
         
         // Re-apply filters if any
         if (that.data.searchQuery || that.data.selectedCategory || that.data.selectedCondition || that.data.selectedLocation) {
             that.filterBooks();
         }
-      },
-      fail: function(err) {
+    }).catch(err => {
         console.error('Failed to load books:', err);
-        wx.showToast({
-            title: '加载失败，请检查网络',
-            icon: 'none'
-        });
         that.setData({ loading: false });
-      }
+        // Error handling is done in requestWithRetry but we can show specific toast if needed
     });
   },
 
-  // Removed getMockBooks function
-
   onSearchInput: function(e) {
-    this.setData({ searchQuery: e.detail.value });
-    this.filterBooks();
+    this.debouncedSearch(e.detail.value);
   },
 
   toggleFilters: function() {
@@ -209,14 +202,8 @@ Page({
     }
     
     this.setData({ wishlist });
-    wx.setStorageSync('wishlist', wishlist);
+    storage.set('wishlist', wishlist);
     const app = getApp();
     if (app && app.globalData) app.globalData.wishlist = wishlist;
-    
-    // Sync with backend if logged in
-    // This part assumes backend has /api/users/wishlist/toggle which we added/checked in backend routes
-    // But we need auth token. 
-    // Simplified for now as requested "Unify Data Source" primarily focuses on read.
-    // Ideally we should call API here.
   }
 });
