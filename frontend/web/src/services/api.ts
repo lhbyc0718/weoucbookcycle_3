@@ -149,14 +149,22 @@ async function refreshToken(): Promise<string> {
 
 // 认证API
 export const authApi = {
+  getCaptcha: () =>
+    apiClient.get('/api/auth/captcha'),
   wechatLogin: (code: string) => 
     apiClient.post('/api/auth/wechat', { code }),
   login: (data: any) => 
     apiClient.post('/api/auth/login', data),
   register: (data: any) => 
     apiClient.post('/api/auth/register', data),
+  completeRegistration: (data: any) =>
+    apiClient.post('/api/auth/complete-registration', data),
   logout: () => 
     apiClient.post('/api/auth/logout', {}),
+  sendPasswordReset: (data: any) =>
+    apiClient.post('/api/auth/send-password-reset', data),
+  resetPassword: (data: any) =>
+    apiClient.post('/api/auth/reset-password', data),
 };
 
 // 书籍API

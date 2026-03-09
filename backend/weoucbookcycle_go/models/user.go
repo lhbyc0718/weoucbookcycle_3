@@ -36,9 +36,13 @@ type User struct {
 
 	// 微信开放平台openid，用于小程序登录
 	WeChatOpenID string `gorm:"type:varchar(100);uniqueIndex;comment:微信openid" json:"wechat_openid,omitempty"`
-	
+
 	// 角色管理 (简单实现：admin, user)
 	Role string `gorm:"type:varchar(20);default:user;comment:用户角色" json:"role"`
+
+	// 登录安全相关
+	FailedLoginAttempts int        `gorm:"default:0;comment:连续登录失败次数" json:"-"`
+	LockoutUntil        *time.Time `gorm:"comment:锁定截止时间" json:"-"`
 }
 
 // TableName 指定表名

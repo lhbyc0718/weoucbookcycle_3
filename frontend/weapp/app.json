@@ -2,6 +2,7 @@
   "appid": "wxceb369d32ab102d5",
   "pages": [
     "pages/index/index",
+    "pages/login/login",
     "pages/market/market",
     "pages/post/post",
     "pages/messages/messages",

@@ -14,9 +14,11 @@ import (
 	"time"
 	"weoucbookcycle_go/config"
 	"weoucbookcycle_go/models"
+	"weoucbookcycle_go/utils"
 
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 var (
@@ -83,7 +85,7 @@ type BlockInfo struct {
 func NewAuthService() *AuthService {
 	emailConfig := &EmailConfig{
 		SMTPHost:     config.GetEnv("SMTP_HOST", "smtp.gmail.com"),
-		SMTPPort:     587,
+		SMTPPort:     config.GetEnvInt("SMTP_PORT", 587),
 		SMTPUser:     config.GetEnv("SMTP_USER", ""),
 		SMTPPassword: config.GetEnv("SMTP_PASSWORD", ""),
 		FromEmail:    config.GetEnv("FROM_EMAIL", "noreply@weoucbookcycle.com"),
@@ -91,9 +93,9 @@ func NewAuthService() *AuthService {
 	}
 
 	authConfig := &AuthConfig{
-		MaxLoginAttempts:     5,
-		LoginBlockDuration:   15 * time.Minute,
-		RegisterLimitPerHour: 3,
+		MaxLoginAttempts:     20,
+		LoginBlockDuration:   30 * time.Minute,
+		RegisterLimitPerHour: 10,
 	}
 
 	authService := &AuthService{
@@ -119,242 +121,250 @@ func NewAuthService() *AuthService {
 
 // RegisterRequest 注册请求
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required,min=3,max=50"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=8,max=100"`
+	Username   string `json:"username" binding:"required,min=3,max=50"`
+	Email      string `json:"email"`
+	Phone      string `json:"phone"`
+	Password   string `json:"password" binding:"required,min=8,max=100"`
+	CaptchaID  string `json:"captcha_id" binding:"required"`
+	CaptchaVal string `json:"captcha_val" binding:"required"`
 }
 
 // LoginRequest 登录请求
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
+	Identifier string `json:"identifier" binding:"required"` // Username, Email or Phone
+	Password   string `json:"password" binding:"required"`
 }
 
 // ==================== 注册相关方法 ====================
 
-// Register 用户注册
-func (as *AuthService) Register(req *RegisterRequest, clientIP string) (*models.User, string, error) {
+// Register 用户注册 (第一步：校验并发送验证码)
+// 注意：现在注册逻辑改为：用户填写信息 -> 验证Captcha -> 暂存信息 -> 发送验证链接/码
+// 用户点击链接/输入验证码 -> 激活账户
+func (as *AuthService) Register(req *RegisterRequest, clientIP string) error {
+	// 0. 验证Captcha
+	if !utils.VerifyCaptcha(req.CaptchaID, req.CaptchaVal) {
+		return errors.New("invalid captcha")
+	}
+
 	// 1. 检查IP是否被封禁
 	if as.isIPBlocked(clientIP) {
-		return nil, "", errors.New("your IP has been blocked due to suspicious activity")
+		return errors.New("your IP has been blocked due to suspicious activity")
 	}
 
 	// 2. 检查用户名是否已存在
 	var existingUser models.User
 	if err := config.DB.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
-		return nil, "", errors.New("username already exists")
+		return errors.New("username already exists")
 	}
 
-	// 3. 检查邮箱是否已存在
-	if err := config.DB.Where("email = ?", req.Email).First(&existingUser).Error; err == nil {
-		return nil, "", errors.New("email already exists")
+	// 3. 检查邮箱/手机号是否已存在
+	if req.Email != "" {
+		if err := config.DB.Where("email = ?", req.Email).First(&existingUser).Error; err == nil {
+			return errors.New("email already exists")
+		}
+	} else if req.Phone != "" {
+		if err := config.DB.Where("phone = ?", req.Phone).First(&existingUser).Error; err == nil {
+			return errors.New("phone number already exists")
+		}
+	} else {
+		return errors.New("email or phone is required")
 	}
 
-	// 4. 检查注册频率限制（使用Redis）
+	// 4. 检查注册频率限制
 	if config.RedisClient != nil {
 		registerLimitKey := fmt.Sprintf("register:limit:%s", clientIP)
 		count, _ := config.RedisClient.Get(redisCtx, registerLimitKey).Int64()
 		if count >= int64(as.authConfig.RegisterLimitPerHour) {
-			// 记录可疑行为，可能封禁IP
 			as.recordSuspiciousActivity(clientIP, "too many registration attempts")
-			return nil, "", fmt.Errorf("too many registration attempts, please try again later")
+			return fmt.Errorf("too many registration attempts, please try again later")
 		}
 	}
 
-	// 5. 密码加密
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to hash password: %w", err)
+	// 5. 生成验证码
+	verificationCode := as.generateVerificationCode()
+	verificationCodeHash, _ := bcrypt.GenerateFromPassword([]byte(verificationCode), bcrypt.DefaultCost)
+
+	// 6. 暂存注册信息到Redis (1小时有效)
+	// Key: register:pending:{email/phone}
+	identifier := req.Email
+	if identifier == "" {
+		identifier = req.Phone
 	}
 
-	// 6. 生成邮箱验证码
-	verificationCode := as.generateVerificationCode()
+	pendingKey := fmt.Sprintf("register:pending:%s", identifier)
 
-	// 7. 创建用户
+	// 对密码进行加密暂存
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	pendingData := map[string]interface{}{
+		"username":  req.Username,
+		"email":     req.Email,
+		"phone":     req.Phone,
+		"password":  string(hashedPassword),
+		"code_hash": string(verificationCodeHash),
+	}
+
+	pendingJSON, _ := json.Marshal(pendingData)
+	if config.RedisClient != nil {
+		config.RedisClient.Set(redisCtx, pendingKey, pendingJSON, 1*time.Hour)
+	}
+
+	// 7. 发送验证码/链接
+	if req.Email != "" {
+		go func() {
+			verificationLink := fmt.Sprintf("http://localhost:5173/verify-email?email=%s&code=%s", req.Email, verificationCode)
+			as.queueEmail(&EmailTask{
+				Type:    "verification",
+				ToEmail: req.Email,
+				Subject: "Verify Your Email Address - WeOUC Book Cycle",
+				HTMLBody: fmt.Sprintf(`
+					<h2>Welcome to WeOUC Book Cycle!</h2>
+					<p>Please verify your email address to complete registration.</p>
+					<p><a href="%s">Click here to Verify Email</a></p>
+					<p>Or use this code: <strong>%s</strong></p>
+					<p>This link/code expires in 1 hour.</p>
+				`, verificationLink, verificationCode),
+				Timestamp: time.Now(),
+			})
+		}()
+	} else {
+		// Mock Phone SMS
+		fmt.Printf("[MOCK SMS] To: %s, Code: %s\n", req.Phone, verificationCode)
+	}
+
+	return nil
+}
+
+// CompleteRegistration 完成注册 (验证通过后调用)
+func (as *AuthService) CompleteRegistration(identifier, code string, clientIP string) (*models.User, string, error) {
+	// 1. 获取暂存信息
+	pendingKey := fmt.Sprintf("register:pending:%s", identifier)
+	val, err := config.RedisClient.Get(redisCtx, pendingKey).Result()
+	if err != nil {
+		return nil, "", errors.New("registration session expired or invalid")
+	}
+
+	var pendingData struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+		Phone    string `json:"phone"`
+		Password string `json:"password"`
+		CodeHash string `json:"code_hash"`
+	}
+	json.Unmarshal([]byte(val), &pendingData)
+
+	// 2. 验证代码
+	if err := bcrypt.CompareHashAndPassword([]byte(pendingData.CodeHash), []byte(code)); err != nil {
+		return nil, "", errors.New("invalid verification code")
+	}
+
+	// 3. 创建用户
 	user := models.User{
-		Username: req.Username,
-		Email:    req.Email,
-		Password: string(hashedPassword),
-		Status:   1,
+		Username:      pendingData.Username,
+		Email:         pendingData.Email,
+		Phone:         pendingData.Phone,
+		Password:      pendingData.Password, // Already hashed
+		Status:        1,
+		EmailVerified: pendingData.Email != "",
+		VerifiedAt:    func() *time.Time { t := time.Now(); return &t }(),
 	}
 
 	if err := config.DB.Create(&user).Error; err != nil {
 		return nil, "", fmt.Errorf("failed to create user: %w", err)
 	}
 
-	// 8. 存储验证码到Redis（30分钟有效），使用哈希存储，避免明文
-	// 实际生产环境建议对验证码进行Hash后再比对，防止Redis泄露导致验证码泄露
-	verificationCodeHash, _ := bcrypt.GenerateFromPassword([]byte(verificationCode), bcrypt.DefaultCost)
-	verificationKey := fmt.Sprintf("verify:email:%s", req.Email)
-	if config.RedisClient != nil {
-		config.RedisClient.Set(redisCtx, verificationKey, string(verificationCodeHash), 30*time.Minute)
-	}
+	// 4. 清理Redis
+	config.RedisClient.Del(redisCtx, pendingKey)
 
-	// 9. 增加注册计数
+	// 5. 增加注册计数
 	if config.RedisClient != nil {
 		registerLimitKey := fmt.Sprintf("register:limit:%s", clientIP)
 		config.RedisClient.Incr(redisCtx, registerLimitKey)
 		config.RedisClient.Expire(redisCtx, registerLimitKey, time.Hour)
 	}
 
-	// 10. 生成JWT token
+	// 6. 生成Token
 	token, err := as.jwtService.GenerateToken(user.ID, user.Username, user.Email, []string{"user"})
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate token: %w", err)
 	}
-
-	// 11. 异步发送欢迎邮件和验证邮件（使用goroutine）
-	go func() {
-		as.queueEmail(&EmailTask{
-			Type:      "welcome",
-			ToEmail:   req.Email,
-			Subject:   "Welcome to WeOUC BookCycle",
-			Body:      fmt.Sprintf("Welcome %s! Your account has been created successfully.", req.Username),
-			Timestamp: time.Now(),
-		})
-	}()
-
-	go func() {
-		verificationLink := fmt.Sprintf("http://localhost:5173/verify-email?email=%s&code=%s", req.Email, verificationCode)
-		as.queueEmail(&EmailTask{
-			Type:    "verification",
-			ToEmail: req.Email,
-			Subject: "Verify Your Email Address",
-			HTMLBody: fmt.Sprintf(`
-				<h2>Email Verification</h2>
-				<p>Hello %s,</p>
-				<p>Please verify your email address by clicking the link below:</p>
-				<p><a href="%s">Verify Email</a></p>
-				<p>Or use this verification code: <strong>%s</strong></p>
-				<p>This code will expire in 30 minutes.</p>
-				<p>If you did not create an account, please ignore this email.</p>
-			`, req.Username, verificationLink, verificationCode),
-			Timestamp: time.Now(),
-		})
-	}()
-
-	// 12. 记录注册到Redis（用于统计分析）
-	go func() {
-		if config.RedisClient != nil {
-			config.RedisClient.Incr(redisCtx, "stats:register:total")
-			config.RedisClient.Incr(redisCtx, fmt.Sprintf("stats:register:%s", time.Now().Format("2006-01-02")))
-			// 记录到Stream
-			config.RedisClient.XAdd(redisCtx, &redis.XAddArgs{
-				Stream: "user_events",
-				Values: map[string]interface{}{
-					"event":     "register",
-					"user_id":   user.ID,
-					"email":     user.Email,
-					"username":  user.Username,
-					"ip":        clientIP,
-					"timestamp": time.Now().Unix(),
-				},
-			})
-		}
-	}()
 
 	return &user, token, nil
 }
 
 // ==================== 登录相关方法 ====================
 
-// Login 用户登录
+// Login 用户登录 (支持 用户名/邮箱/手机号)
 func (as *AuthService) Login(req *LoginRequest, clientIP, userAgent string) (*models.User, string, error) {
 	// 1. 检查IP是否被封禁
 	if as.isIPBlocked(clientIP) {
-		// 记录登录失败
-		as.loginFailureQueue <- &LoginFailure{
-			Email:     req.Email,
-			IP:        clientIP,
-			Timestamp: time.Now(),
-			UserAgent: userAgent,
-		}
-		return nil, "", errors.New("your IP has been blocked due to too many failed login attempts. Please try again later")
+		as.recordLoginFailure(req.Identifier, clientIP, userAgent, "IP blocked")
+		return nil, "", errors.New("your IP has been blocked due to too many failed login attempts")
 	}
 
-	// 2. 检查登录频率限制（基于IP和邮箱）
-	if config.RedisClient != nil {
-		loginLimitKey := fmt.Sprintf("login:limit:%s:%s", req.Email, clientIP)
-		attempts, _ := config.RedisClient.Get(redisCtx, loginLimitKey).Int64()
-
-		if attempts >= int64(as.authConfig.MaxLoginAttempts) {
-			// 封禁IP
-			as.blockIP(clientIP, "too many failed login attempts")
-			return nil, "", fmt.Errorf("too many login attempts. Your IP has been blocked for %v", as.authConfig.LoginBlockDuration)
-		}
-	}
-
-	// 3. 查找用户
+	// 2. 查找用户 (Identifier可以是 Username, Email 或 Phone)
 	var user models.User
-	if err := config.DB.Where("email = ?", req.Email).First(&user).Error; err != nil {
-		// 记录登录失败
-		as.recordLoginFailure(req.Email, clientIP, userAgent, "user not found")
-		return nil, "", errors.New("invalid email or password")
+	result := config.DB.Where("email = ?", req.Identifier).
+		Or("username = ?", req.Identifier).
+		Or("phone = ?", req.Identifier).
+		First(&user)
+
+	if result.Error != nil {
+		// 用户不存在
+		as.recordLoginFailure(req.Identifier, clientIP, userAgent, "user not found")
+		return nil, "", errors.New("invalid credentials")
+	}
+
+	// 3. 检查账号是否锁定 (20次失败)
+	if user.LockoutUntil != nil && time.Now().Before(*user.LockoutUntil) {
+		return nil, "", fmt.Errorf("account is locked until %s due to too many failed attempts", user.LockoutUntil.Format(time.RFC3339))
 	}
 
 	// 4. 验证密码
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		// 记录登录失败
-		as.recordLoginFailure(req.Email, clientIP, userAgent, "invalid password")
-		return nil, "", errors.New("invalid email or password")
+		// 增加失败次数
+		user.FailedLoginAttempts++
+		if user.FailedLoginAttempts >= 20 {
+			lockoutTime := time.Now().Add(as.authConfig.LoginBlockDuration)
+			user.LockoutUntil = &lockoutTime
+			config.DB.Model(&user).Select("FailedLoginAttempts", "LockoutUntil").Updates(user)
+			as.recordLoginFailure(req.Identifier, clientIP, userAgent, "account locked")
+			return nil, "", errors.New("account locked due to too many failed attempts")
+		}
+		config.DB.Model(&user).Update("FailedLoginAttempts", user.FailedLoginAttempts)
+
+		as.recordLoginFailure(req.Identifier, clientIP, userAgent, "invalid password")
+		return nil, "", errors.New("invalid credentials")
 	}
 
-	// 5. 检查用户状态
+	// 5. 登录成功，重置失败次数
+	if user.FailedLoginAttempts > 0 || user.LockoutUntil != nil {
+		config.DB.Model(&user).Updates(map[string]interface{}{
+			"FailedLoginAttempts": 0,
+			"LockoutUntil":        nil,
+		})
+	}
+
+	// 6. 检查用户状态
 	if user.Status == 0 {
-		return nil, "", errors.New("account is disabled. Please contact support")
+		return nil, "", errors.New("account is disabled")
 	}
 
-	// 6. 更新最后登录时间和登录次数
+	// 7. 更新最后登录时间
 	now := time.Now()
-	loginCount := 0
-
-	// 从Redis获取登录次数
-	loginCountKey := fmt.Sprintf("user:login_count:%s", user.ID)
-	if config.RedisClient != nil {
-		count, _ := config.RedisClient.Get(redisCtx, loginCountKey).Int64()
-		loginCount = int(count)
-		config.RedisClient.Incr(redisCtx, loginCountKey)
-	}
-
-	updates := map[string]interface{}{
+	config.DB.Model(&user).Updates(map[string]interface{}{
 		"last_login":  &now,
-		"login_count": loginCount + 1,
-	}
+		"login_count": gorm.Expr("login_count + 1"),
+	})
 
-	if err := config.DB.Model(&user).Updates(updates).Error; err != nil {
-		// 不影响登录流程，只记录错误
-	}
-
-	// 7. 清除登录失败记录
-	if config.RedisClient != nil {
-		loginLimitKey := fmt.Sprintf("login:limit:%s:%s", req.Email, clientIP)
-		config.RedisClient.Del(redisCtx, loginLimitKey)
-
-		// 从内存缓存中移除IP封禁
-		as.ipBlockCache.Delete(clientIP)
-	}
-
-	// 8. 生成JWT token
-	token, err := as.jwtService.GenerateToken(user.ID, user.Username, user.Email, []string{"user"})
+	// 8. 生成Token
+	token, err := as.jwtService.GenerateToken(user.ID, user.Username, user.Email, []string{user.Role})
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate token: %w", err)
 	}
-
-	// 9. 异步记录登录日志（使用goroutine）
-	go func() {
-		as.recordLoginLog(&user, clientIP, userAgent, true)
-	}()
-
-	// 10. 记录活跃用户到Redis（用于在线统计）
-	go func() {
-		if config.RedisClient != nil {
-			config.RedisClient.ZAdd(redisCtx, "users:active", redis.Z{
-				Score:  float64(time.Now().Unix()),
-				Member: user.ID,
-			})
-			config.RedisClient.Expire(redisCtx, "users:active", 7*24*time.Hour)
-		}
-	}()
 
 	return &user, token, nil
 }
@@ -622,7 +632,12 @@ func (as *AuthService) ResendVerificationCode(email string) error {
 // ==================== 密码重置方法 ====================
 
 // SendPasswordResetToken 发送密码重置令牌
-func (as *AuthService) SendPasswordResetToken(email string) error {
+func (as *AuthService) SendPasswordResetToken(email, captchaID, captchaVal string) error {
+	// 0. 验证Captcha
+	if !utils.VerifyCaptcha(captchaID, captchaVal) {
+		return errors.New("invalid captcha")
+	}
+
 	// 1. 检查用户是否存在
 	var user models.User
 	if err := config.DB.Where("email = ?", email).First(&user).Error; err != nil {
@@ -655,6 +670,7 @@ func (as *AuthService) SendPasswordResetToken(email string) error {
 	// 6. 异步发送邮件
 	go func() {
 		resetLink := fmt.Sprintf("http://localhost:5173/reset-password?email=%s&token=%s", email, resetToken)
+		fmt.Printf("Sending reset email to %s with token %s\n", email, resetToken) // Debug log
 		as.queueEmail(&EmailTask{
 			Type:    "password_reset",
 			ToEmail: email,

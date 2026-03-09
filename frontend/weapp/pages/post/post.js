@@ -27,7 +27,20 @@ Page({
     this.checkUserStatus();
   },
 
-  checkUserStatus: function() {
+  onShow: function() {
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+      this.getTabBar().setData({
+        selected: 2 // Post is usually index 2
+      })
+    }
+    
+    // Check login
+    if (!app.ensureLogin()) {
+      return;
+    }
+    
+    this.checkUserStatus();
+  },
     const userInfo = wx.getStorageSync('userInfo');
     if (userInfo && userInfo.trustScore <= 60) {
       this.setData({

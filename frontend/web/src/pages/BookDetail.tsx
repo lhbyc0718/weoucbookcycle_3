@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { HiArrowLeft, HiHeart, HiOutlineHeart, HiChat, HiLocationMarker, HiShare, HiCheckCircle, HiStar } from 'react-icons/hi';
+import { HiArrowLeft, HiHeart, HiOutlineHeart, HiChat, HiLocationMarker, HiShare, HiCheckCircle, HiStar, HiBadgeCheck } from 'react-icons/hi';
 import { bookApi, userApi } from '../services/api';
 
 interface Book {
@@ -81,6 +81,12 @@ export default function BookDetail() {
 
   const handleToggleWishlist = async () => {
     if (!id) return;
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+        navigate('/login', { state: { from: location } });
+        return;
+    }
+
     try {
       setIsWishlisted(!isWishlisted);
       await userApi.toggleWishlist(id);
@@ -92,6 +98,11 @@ export default function BookDetail() {
 
   const handleContactSeller = async () => {
     if (!book) return;
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+        navigate('/login', { state: { from: location } });
+        return;
+    }
     navigate(`/chats/new?userId=${book.Seller.id}`);
   };
 

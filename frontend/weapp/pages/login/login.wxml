@@ -1,0 +1,32 @@
+<view class="container">
+  <view class="header">
+    <view class="title logo-text">WeOUC Book Cycle</view>
+    <view class="subtitle">让闲置书籍流动起来</view>
+  </view>
+  
+  <view class="content">
+    <view class="form-group" wx:if="{{!isWeChatLogin}}">
+      <view class="input-group">
+        <text class="label">账号</text>
+        <input class="input" placeholder="用户名/邮箱/手机号" bindinput="onInputIdentifier" value="{{identifier}}" />
+      </view>
+      <view class="input-group">
+        <text class="label">密码</text>
+        <input class="input" password placeholder="请输入密码" bindinput="onInputPassword" value="{{password}}" />
+      </view>
+      <button class="submit-btn" type="primary" bindtap="handlePasswordLogin" loading="{{loading}}">登录</button>
+      <view class="links">
+        <text bindtap="toggleLoginMode">微信一键登录</text>
+        <text>|</text>
+        <text>忘记密码?</text>
+      </view>
+    </view>
+
+    <view wx:else>
+      <button class="login-btn" type="primary" bindtap="handleLogin">微信一键登录</button>
+      <button class="outline-btn" bindtap="toggleLoginMode">账号密码登录</button>
+    </view>
+    
+    <button class="cancel-btn" type="default" bindtap="handleCancel">暂不登录</button>
+  </view>
+</view>

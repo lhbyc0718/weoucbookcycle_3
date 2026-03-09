@@ -115,6 +115,36 @@ App({
     })
   },
   
+  /**
+   * Checks if user is logged in, if not redirects to login page.
+   * @param {string} redirectUrl - The page to redirect to after successful login
+   * @returns {boolean} - True if logged in, false if redirected
+   */
+  ensureLogin: function(redirectUrl) {
+    if (this.globalData.token && this.globalData.userInfo) {
+      return true;
+    }
+    
+    // Not logged in, redirect to login page
+    // Using wx.navigateTo for normal pages, but for tabbar pages we can't pass params easily via url in switchTab
+    // So we pass it as query param to login page
+    
+    // If no redirectUrl provided, use current page
+    if (!redirectUrl) {
+      const pages = getCurrentPages();
+      if (pages.length > 0) {
+        const currentPage = pages[pages.length - 1];
+        redirectUrl = '/' + currentPage.route;
+      }
+    }
+    
+    wx.navigateTo({
+      url: `/pages/login/login?redirect=${encodeURIComponent(redirectUrl || '/pages/index/index')}`
+    });
+    
+    return false;
+  },
+
   globalData: {
     userInfo: null,
     token: null,

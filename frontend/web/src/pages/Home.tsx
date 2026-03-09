@@ -84,7 +84,14 @@ export default function Home() {
                 <h2 className="text-2xl md:text-4xl font-bold mb-2 md:mb-4">WeOUC Book Cycle</h2>
                 <p className="text-blue-100 text-sm md:text-lg mb-4 md:mb-6">让闲置书籍流动起来，传递知识与价值。连接每一位 OUCer。</p>
                 <button 
-                  onClick={() => navigate('/market')}
+                  onClick={() => {
+                    const token = localStorage.getItem('authToken');
+                    if (!token) {
+                      navigate('/login', { state: { from: { pathname: '/market' } } });
+                    } else {
+                      navigate('/market');
+                    }
+                  }}
                   className="bg-white text-blue-600 px-6 py-2 rounded-full text-sm md:text-base font-bold shadow-sm hover:bg-blue-50 transition-colors inline-flex items-center gap-2"
                 >
                   立即探索 <HiArrowRight />

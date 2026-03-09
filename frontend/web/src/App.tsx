@@ -8,6 +8,8 @@ import ChatDetail from './pages/ChatDetail';
 import UserProfile from './pages/UserProfile';
 import AdminDashboard from './pages/AdminDashboard';
 import Post from './pages/Post';
+import Login from './pages/Login';
+import PrivateRoute from './components/PrivateRoute';
 import './index.css';
 import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
@@ -21,12 +23,22 @@ export default function App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
 
   useEffect(() => {
-    // Initialize WebSocket connection
-    wsService.connect();
+    // Initialize WebSocket connection if logged in
+    const token = localStorage.getItem('authToken');
+    if (token) {
+        wsService.connect();
+    }
 
     // Listen for auth errors
     const handleAuthError = () => setShowLoginModal(true);
     window.addEventListener('auth:unauthorized', handleAuthError);
+
+    // Listen for login event (e.g. from Login page)
+    const handleLogin = () => {
+        wsService.connect();
+        fetchUnread();
+    };
+    window.addEventListener('auth:login', handleLogin);
 
     // Subscribe to messages for global unread count
     const handleMessage = (data: any) => {
@@ -53,10 +65,14 @@ export default function App() {
             console.error("Failed to fetch unread count", e);
         }
     };
-    fetchUnread();
+    
+    if (token) {
+        fetchUnread();
+    }
 
     return () => {
       window.removeEventListener('auth:unauthorized', handleAuthError);
+      window.removeEventListener('auth:login', handleLogin);
       wsService.unsubscribe('message', handleMessage);
       wsService.disconnect();
     };
@@ -75,15 +91,39 @@ export default function App() {
         }} 
       />
       <Routes>
+        <Route path="/login" element={<Login />} />
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Home />} />
           <Route path="market" element={<Market />} />
           <Route path="books/:id" element={<BookDetail />} />
-          <Route path="messages" element={<Messages />} />
-          <Route path="chats/:id" element={<ChatDetail />} />
-          <Route path="profile" element={<UserProfile />} />
-          <Route path="admin" element={<AdminDashboard />} />
-          <Route path="post" element={<Post />} />
+          
+          {/* Protected Routes */}
+          <Route path="messages" element={
+            <PrivateRoute>
+              <Messages />
+            </PrivateRoute>
+          } />
+          <Route path="chats/:id" element={
+            <PrivateRoute>
+              <ChatDetail />
+            </PrivateRoute>
+          } />
+          <Route path="profile" element={
+            <PrivateRoute>
+              <UserProfile />
+            </PrivateRoute>
+          } />
+          <Route path="admin" element={
+            <PrivateRoute>
+              <AdminDashboard />
+            </PrivateRoute>
+          } />
+          <Route path="post" element={
+            <PrivateRoute>
+              <Post />
+            </PrivateRoute>
+          } />
+          
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

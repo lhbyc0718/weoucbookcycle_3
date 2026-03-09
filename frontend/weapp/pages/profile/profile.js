@@ -17,6 +17,10 @@ Page({
   },
 
   onShow: function() {
+    // Check login first
+    if (!app.ensureLogin()) {
+      return;
+    }
     this.loadUserData();
   },
 

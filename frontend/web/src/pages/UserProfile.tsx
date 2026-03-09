@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { HiLogout, HiBookOpen, HiHeart, HiCheckCircle } from 'react-icons/hi';
+import { HiLogout, HiBookOpen, HiHeart, HiCheckCircle, HiBadgeCheck } from 'react-icons/hi';
 import { userApi, bookApi, authApi } from '../services/api';
 import clsx from 'clsx';
 

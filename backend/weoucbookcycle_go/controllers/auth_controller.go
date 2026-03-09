@@ -11,7 +11,7 @@ import (
 
 // AuthController 认证控制器
 type AuthController struct {
-	authService *services.AuthService // 使用authService而不是jwtService
+	authService *services.AuthService
 }
 
 // NewAuthController 创建认证控制器实例
@@ -21,17 +21,66 @@ func NewAuthController() *AuthController {
 	}
 }
 
+// GetCaptcha 获取验证码
+func (ac *AuthController) GetCaptcha(c *gin.Context) {
+	id, b64s, err := utils.GenerateCaptcha()
+	if err != nil {
+		utils.Error(c, utils.CodeInternalServerError, "Failed to generate captcha")
+		return
+	}
+	utils.SuccessWithMessage(c, "success", gin.H{
+		"captcha_id":    id,
+		"captcha_image": b64s,
+	})
+}
+
+// CompleteRegistrationRequest 完成注册请求
+type CompleteRegistrationRequest struct {
+	Identifier string `json:"identifier" binding:"required"`
+	Code       string `json:"code" binding:"required"`
+}
+
+// CompleteRegistration 完成注册
+func (ac *AuthController) CompleteRegistration(c *gin.Context) {
+	var req CompleteRegistrationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, utils.CodeValidationError, err.Error())
+		return
+	}
+
+	user, token, err := ac.authService.CompleteRegistration(req.Identifier, req.Code, c.ClientIP())
+	if err != nil {
+		utils.Error(c, utils.CodeError, err.Error())
+		return
+	}
+
+	utils.SuccessWithMessage(c, "注册成功", gin.H{
+		"token":     token,
+		"expiresIn": 7200,
+		"user": gin.H{
+			"id":             user.ID,
+			"username":       user.Username,
+			"email":          user.Email,
+			"phone":          user.Phone,
+			"email_verified": user.EmailVerified,
+		},
+	})
+}
+
 // RegisterRequest 注册请求结构
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required,min=3,max=50"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=8"`
+	Username   string `json:"username" binding:"required,min=3,max=50"`
+	Email      string `json:"email"`
+	Phone      string `json:"phone"`
+	Password   string `json:"password" binding:"required,min=8"`
+	CaptchaID  string `json:"captcha_id" binding:"required"`
+	CaptchaVal string `json:"captcha_val" binding:"required"`
 }
 
 // LoginRequest 登录请求结构
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
+	Identifier string `json:"identifier" binding:"required"`
+	Password   string `json:"password" binding:"required"`
 }
 
 // WeChatLoginRequest 微信登录请求结构
@@ -65,7 +114,9 @@ type ResendVerificationRequest struct {
 
 // SendPasswordResetRequest 发送密码重置请求结构
 type SendPasswordResetRequest struct {
-	Email string `json:"email" binding:"required,email"`
+	Email      string `json:"email" binding:"required,email"`
+	CaptchaID  string `json:"captcha_id" binding:"required"`
+	CaptchaVal string `json:"captcha_val" binding:"required"`
 }
 
 // ResetPasswordRequest 重置密码请求结构
@@ -91,28 +142,12 @@ func (ac *AuthController) Register(c *gin.Context) {
 		return
 	}
 
-	user, token, err := ac.authService.Register(&req, c.ClientIP())
-	if err != nil {
+	if err := ac.authService.Register(&req, c.ClientIP()); err != nil {
 		utils.Error(c, utils.CodeError, err.Error())
 		return
 	}
 
-	utils.SuccessWithMessage(c, "注册成功", gin.H{
-		"token":     token,
-		"expiresIn": 7200,
-		"user": gin.H{
-			"id":             user.ID,
-			"username":       user.Username,
-			"email":          user.Email,
-			"email_verified": user.EmailVerified,
-		},
-	})
-
-	// Set HttpOnly Cookie with SameSite: Strict
-	c.SetSameSite(http.SameSiteStrictMode)
-	// Secure should be true in production (requires HTTPS)
-	isSecure := os.Getenv("GIN_MODE") == "release"
-	c.SetCookie("jwt_token", token, 7200, "/", "", isSecure, true)
+	utils.SuccessWithMessage(c, "验证码已发送", nil)
 }
 
 // Login 用户登录
@@ -144,6 +179,7 @@ func (ac *AuthController) Login(c *gin.Context) {
 			"id":             user.ID,
 			"username":       user.Username,
 			"email":          user.Email,
+			"phone":          user.Phone,
 			"avatar":         user.Avatar,
 			"email_verified": user.EmailVerified,
 		},
@@ -339,8 +375,8 @@ func (ac *AuthController) SendPasswordResetToken(c *gin.Context) {
 		return
 	}
 
-	if err := ac.authService.SendPasswordResetToken(req.Email); err != nil {
-		utils.Error(c, utils.CodeInternalServerError, err.Error())
+	if err := ac.authService.SendPasswordResetToken(req.Email, req.CaptchaID, req.CaptchaVal); err != nil {
+		utils.Error(c, utils.CodeError, err.Error()) // Use CodeError to show message to user
 		return
 	}
 

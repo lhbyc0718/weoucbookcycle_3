@@ -34,7 +34,9 @@ func SetupRoutes(r *gin.Engine) {
 		// ====== 认证路由 (无需认证) ======
 		auth := api.Group("/auth")
 		{
+			auth.GET("/captcha", controllers.NewAuthController().GetCaptcha)
 			auth.POST("/register", controllers.NewAuthController().Register)
+			auth.POST("/complete-registration", controllers.NewAuthController().CompleteRegistration)
 			auth.POST("/login", controllers.NewAuthController().Login)
 			// 微信小程序登录，无需邮箱密码
 			auth.POST("/wechat", controllers.NewAuthController().WeChatLogin)
