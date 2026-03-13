@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { HiX, HiUser, HiLockClosed } from 'react-icons/hi';
 import { authApi } from '../services/api';
 import toast from 'react-hot-toast';
@@ -11,20 +11,16 @@ interface LoginModalProps {
 }
 
 export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
-  const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
     if (!isOpen) {
       // Reset form when closed
       setUsername('');
       setPassword('');
-      setEmail('');
       setLoading(false);
     }
   }, [isOpen]);
@@ -33,32 +29,31 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password || (!isLogin && !email)) {
+    if (!username || !password) {
       toast.error('请填写所有必填字段');
       return;
     }
 
     setLoading(true);
     try {
-      if (isLogin) {
-        const res = await authApi.login({ username, password });
-        const data = (res as any).data || res;
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('userInfo', JSON.stringify(data.user));
-        toast.success('登录成功');
-        onSuccess();
-        onClose();
-      } else {
-        await authApi.register({ username, password, email });
-        toast.success('注册成功，请登录');
-        setIsLogin(true);
-      }
+      const res = await authApi.login({ username, password });
+      const data = (res as any).data || res;
+      localStorage.setItem('authToken', data.token);
+      localStorage.setItem('userInfo', JSON.stringify(data.user));
+      toast.success('登录成功');
+      onSuccess();
+      onClose();
     } catch (error: any) {
       console.error(error);
       // Error is handled by api interceptor
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRegisterClick = () => {
+    onClose();
+    navigate('/login', { state: { isRegister: true } });
   };
 
   return (
@@ -72,9 +67,9 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-blue-500 p-6 text-white flex justify-between items-start relative overflow-hidden">
           <div className="relative z-10">
-            <h2 id="modal-title" className="text-2xl font-bold mb-1">{isLogin ? '欢迎回来' : '创建账号'}</h2>
+            <h2 id="modal-title" className="text-2xl font-bold mb-1">欢迎回来</h2>
             <p className="text-blue-100 text-sm">
-              {isLogin ? '登录以继续您的阅读之旅' : '加入社区，分享您的爱书'}
+              登录以继续您的阅读之旅
             </p>
           </div>
           <button 
@@ -94,7 +89,7 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
         <div className="p-6 md:p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">用户名</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">用户名/邮箱/手机号</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <HiUser className="text-gray-400" />
@@ -104,32 +99,11 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  placeholder="请输入用户名"
+                  placeholder="请输入账号"
                   required
                 />
               </div>
             </div>
-
-            {!isLogin && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">邮箱</label>
-                <div className="relative">
-                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
-                    </svg>
-                  </div>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="请输入邮箱"
-                    required
-                  />
-                </div>
-              </div>
-            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">密码</label>
@@ -160,18 +134,18 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               ) : null}
-              {isLogin ? '登 录' : '注 册'}
+              登 录
             </button>
           </form>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
-              {isLogin ? '还没有账号？' : '已有账号？'}
+              还没有账号？
               <button 
-                onClick={() => setIsLogin(!isLogin)}
+                onClick={handleRegisterClick}
                 className="font-medium text-blue-600 hover:text-blue-500 ml-1 transition-colors"
               >
-                {isLogin ? '立即注册' : '直接登录'}
+                立即注册
               </button>
             </p>
           </div>

@@ -20,6 +20,8 @@ type BookService struct {
 	likeStatsQueue chan *BookLikeStat
 	// 搜索索引队列
 	indexQueue chan *BookIndexTask
+	// 搜索服务
+	searchService *SearchService
 }
 
 // BookViewStat 书籍浏览统计
@@ -50,6 +52,7 @@ func NewBookService() *BookService {
 		viewStatsQueue: make(chan *BookViewStat, 2000),
 		likeStatsQueue: make(chan *BookLikeStat, 2000),
 		indexQueue:     make(chan *BookIndexTask, 1000),
+		searchService:  NewSearchService(),
 	}
 
 	// 启动统计worker池
@@ -107,10 +110,15 @@ func (bs *BookService) CreateBook(userID string, req *CreateBookRequest) (*model
 	imagesJSON, _ := json.Marshal(req.Images)
 
 	// 3. 创建书籍
+	var isbn *string
+	if req.ISBN != "" {
+		isbn = &req.ISBN
+	}
+
 	book := models.Book{
 		Title:       req.Title,
 		Author:      req.Author,
-		ISBN:        req.ISBN,
+		ISBN:        isbn,
 		Category:    req.Category,
 		Price:       req.Price,
 		Description: req.Description,
@@ -150,6 +158,18 @@ func (bs *BookService) CreateBook(userID string, req *CreateBookRequest) (*model
 					"timestamp": time.Now().Unix(),
 				},
 			})
+
+			// 同时发布到PubSub频道，便于WebSocket或多实例实时推送
+			pubMsg := map[string]interface{}{
+				"event":     "book_created",
+				"book_id":   book.ID,
+				"title":     book.Title,
+				"seller_id": userID,
+				"timestamp": time.Now().Unix(),
+			}
+			if data, err := json.Marshal(pubMsg); err == nil {
+				config.RedisClient.Publish(redisCtx, "book:created", data)
+			}
 		}
 	}()
 
@@ -170,7 +190,7 @@ func (bs *BookService) UpdateBook(userID, bookID string, req *UpdateBookRequest)
 	}
 
 	// 3. 如果修改ISBN，检查是否重复
-	if req.ISBN != "" && req.ISBN != book.ISBN {
+	if req.ISBN != "" && (book.ISBN == nil || req.ISBN != *book.ISBN) {
 		if !isValidISBN(req.ISBN) {
 			return nil, errors.New("invalid ISBN format")
 		}
@@ -650,10 +670,18 @@ func (bs *BookService) processLikeStats(workerID int) {
 func (bs *BookService) processIndexTask(task *BookIndexTask) {
 	if task.Action == "remove" {
 		bs.removeFromSearchIndex(task.BookID)
+		// 从Elasticsearch移除
+		if err := bs.searchService.DeleteDocument(IndexBooks, task.BookID); err != nil {
+			fmt.Printf("Failed to remove book from ES: %v\n", err)
+		}
 	} else {
 		var book models.Book
 		if err := config.DB.First(&book, "id = ?", task.BookID).Error; err == nil {
 			bs.indexBookForSearch(&book)
+			// 索引到Elasticsearch
+			if err := bs.searchService.IndexBook(&book); err != nil {
+				fmt.Printf("Failed to index book to ES: %v\n", err)
+			}
 		}
 	}
 }

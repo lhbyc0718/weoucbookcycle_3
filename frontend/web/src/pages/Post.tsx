@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { HiCamera, HiX, HiUpload } from 'react-icons/hi';
-import { bookApi } from '../services/api';
+import { bookApi, uploadApi, addressApi } from '../services/api';
+import toast from 'react-hot-toast';
 
 export default function Post() {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     author: '',
@@ -16,10 +19,71 @@ export default function Post() {
     description: '',
     images: [] as string[]
   });
+  const [addressQuery, setAddressQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [selectedAddress, setSelectedAddress] = useState<any | null>(null);
+
+  // 简单防抖
+  let addressTimer: any = null;
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploading(true);
+    try {
+      // API returns the data object directly due to interceptor
+      const res: any = await uploadApi.uploadFiles(files);
+      
+      let newUrls: string[] = [];
+      if (res && res.urls && Array.isArray(res.urls)) {
+        newUrls = res.urls;
+      } else if (res && res.url) {
+        newUrls = [res.url];
+      }
+      
+      setFormData(prev => ({
+        ...prev,
+        images: [...prev.images, ...newUrls]
+      }));
+    } catch (error: any) {
+      console.error('Upload failed:', error);
+      toast.error(error.message || '图片上传失败，请重试');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'address') {
+      // 当用户在地址输入框编辑时，认为未选择预设地址
+      setSelectedAddress(null);
+    }
+  };
+
+  const handleAddressInput = (v: string) => {
+    setAddressQuery(v);
+    setFormData(prev => ({ ...prev, address: v }));
+    setSelectedAddress(null);
+    if (addressTimer) clearTimeout(addressTimer);
+    addressTimer = setTimeout(async () => {
+      if (!v || v.trim() === '') {
+        setSuggestions([]);
+        return;
+      }
+      try {
+        const res: any = await (await import('../services/api')).addressApi.getAddresses({ keyword: v, limit: 8 });
+        const data = (res as any).data || res;
+        setSuggestions(data.addresses || []);
+      } catch (err) {
+        setSuggestions([]);
+      }
+    }, 300);
   };
 
   const handleRemoveImage = (index: number) => {
@@ -36,19 +100,42 @@ export default function Post() {
     try {
       const imagesToSubmit = formData.images.length > 0 
         ? formData.images 
-        : ['https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400&h=600&fit=crop'];
+        : ['/images/default_book.jpg']; // Use default image if none uploaded
 
-      const payload = {
+      // if (imagesToSubmit.length === 0) {
+      //   alert('请至少上传一张图片');
+      //   setLoading(false);
+      //   return;
+      // }
+
+      const payload: any = {
         ...formData,
         price: parseFloat(formData.price),
         images: imagesToSubmit
       };
 
+      // 地址处理：如果选择了已有地址，直接填写 address_id；否则若填写了自定义地址，先创建用户自定义地址
+      if (selectedAddress && selectedAddress.id) {
+        payload.address_id = selectedAddress.id;
+      } else if ((formData as any).address && (formData as any).address.trim() !== '') {
+        try {
+          const res: any = await addressApi.createUserAddress({ province: '', city: '', district: '', address: (formData as any).address });
+          const data = (res as any).data || res;
+          if (data && data.id) {
+            payload.address_id = data.id;
+          }
+        } catch (err) {
+          // 若创建自定义地址失败，也继续提交但不传 address_id
+          console.warn('Failed to create user address, submitting without address_id', err);
+        }
+      }
+
       await bookApi.createBook(payload);
+      toast.success('发布成功');
       navigate('/profile');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create book:', error);
-      alert('发布失败，请重试');
+      toast.error(error.message || '发布失败，请重试');
     } finally {
       setLoading(false);
     }
@@ -90,13 +177,27 @@ export default function Post() {
                 ))}
                 
                 {formData.images.length < 9 && (
-                  <div className="aspect-square bg-white md:bg-gray-100 rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-all cursor-pointer relative group">
-                    <HiCamera className="text-2xl text-gray-400 group-hover:text-blue-500 mb-1" />
-                    <span className="text-xs text-gray-400 group-hover:text-blue-500">添加图片</span>
-                    <div className="absolute inset-0 opacity-0 cursor-pointer" onClick={() => {
-                       const url = prompt("请输入图片URL (暂不支持直接上传):", "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400");
-                       if(url) setFormData(prev => ({ ...prev, images: [...prev.images, url] }));
-                    }} />
+                  <div 
+                    className="aspect-square bg-white md:bg-gray-100 rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-all cursor-pointer relative group"
+                    onClick={() => !uploading && fileInputRef.current?.click()}
+                  >
+                    {uploading ? (
+                        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                        <>
+                            <HiCamera className="text-2xl text-gray-400 group-hover:text-blue-500 mb-1" />
+                            <span className="text-xs text-gray-400 group-hover:text-blue-500">添加图片</span>
+                        </>
+                    )}
+                    <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        onChange={handleFileChange} 
+                        className="hidden" 
+                        accept="image/*" 
+                        multiple 
+                        aria-label="上传书籍图片"
+                    />
                   </div>
                 )}
               </div>
@@ -124,8 +225,8 @@ export default function Post() {
                     aria-label="书名"
                     value={formData.title}
                     onChange={handleChange}
-                    className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                    placeholder="请输入书名"
+                    className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white"
+                    placeholder="请输入书名 (必填)"
                   />
                 </div>
 
@@ -138,8 +239,8 @@ export default function Post() {
                     aria-label="作者"
                     value={formData.author}
                     onChange={handleChange}
-                    className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                    placeholder="请输入作者"
+                    className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white"
+                    placeholder="请输入作者 (必填)"
                   />
                 </div>
               </div>
@@ -152,7 +253,7 @@ export default function Post() {
                   aria-label="ISBN"
                   value={formData.isbn}
                   onChange={handleChange}
-                  className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                  className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white"
                   placeholder="扫码或手动输入"
                 />
               </div>
@@ -205,7 +306,7 @@ export default function Post() {
                     aria-label="价格"
                     value={formData.price}
                     onChange={handleChange}
-                    className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-bold text-red-500"
+                    className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition font-bold text-red-500 bg-white"
                     placeholder="0.00"
                   />
                 </div>
@@ -219,9 +320,44 @@ export default function Post() {
                   aria-label="书籍描述"
                   value={formData.description}
                   onChange={handleChange}
-                  className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                  className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white"
                   placeholder="描述书籍的详细情况、版本、笔记等..."
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">地址 (可选，支持关键字搜索)</label>
+                <input
+                  type="text"
+                  name="address"
+                  aria-label="地址"
+                  value={(formData as any).address || addressQuery}
+                  onChange={(e) => handleAddressInput(e.target.value)}
+                  className="w-full p-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white"
+                  placeholder="输入楼号或小区，如：东海苑 6号楼"
+                />
+                {suggestions.length > 0 && (
+                  <div className="mt-2 bg-white border border-gray-200 rounded-lg shadow-sm max-h-48 overflow-auto">
+                    {suggestions.map((s) => (
+                      <button
+                        type="button"
+                        key={s.id}
+                        onClick={() => {
+                          setSelectedAddress(s);
+                          setAddressQuery(s.address);
+                          setSuggestions([]);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-50"
+                      >
+                        {s.address} {s.city ? `· ${s.city}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {selectedAddress && (
+                  <div className="mt-2 text-sm text-gray-500">已选择：{selectedAddress.address}</div>
+                )}
+                <p className="text-xs text-gray-400 mt-2">提示：可从下拉选择已有地址，或直接输入自定义地址。</p>
               </div>
 
               <div className="pt-4">
@@ -246,3 +382,5 @@ export default function Post() {
     </div>
   );
 }
+
+// 在表单中加入地址输入 UI（用于移动/桌面）

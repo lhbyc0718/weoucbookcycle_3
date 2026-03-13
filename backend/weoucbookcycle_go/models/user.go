@@ -32,13 +32,17 @@ type User struct {
 	// Wishlist 关联改为独立表
 	WishlistItems []Wishlist `gorm:"foreignKey:UserID" json:"wishlist_items,omitempty"`
 	// TrustScore 用户的信任分（0-100）
-	TrustScore int `gorm:"default:80" json:"trustScore"`
+	TrustScore int `gorm:"default:100" json:"trustScore"`
+
+	// 评分系统
+	RatingSum   int `gorm:"default:0;comment:获得的总评分" json:"rating_sum"`
+	RatingCount int `gorm:"default:0;comment:获得的评分次数" json:"rating_count"`
 
 	// 微信开放平台openid，用于小程序登录
-	WeChatOpenID string `gorm:"type:varchar(100);uniqueIndex;comment:微信openid" json:"wechat_openid,omitempty"`
+	WeChatOpenID *string `gorm:"type:varchar(100);uniqueIndex;comment:微信openid" json:"wechat_openid,omitempty"`
 
 	// 角色管理 (简单实现：admin, user)
-	Role string `gorm:"type:varchar(20);default:user;comment:用户角色" json:"role"`
+	Role string `gorm:"type:varchar(20);default:'user';comment:用户角色" json:"role"`
 
 	// 登录安全相关
 	FailedLoginAttempts int        `gorm:"default:0;comment:连续登录失败次数" json:"-"`

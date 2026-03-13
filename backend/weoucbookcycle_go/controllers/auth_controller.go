@@ -168,7 +168,11 @@ func (ac *AuthController) Login(c *gin.Context) {
 
 	user, token, err := ac.authService.Login(&req, c.ClientIP(), c.Request.UserAgent())
 	if err != nil {
-		utils.Error(c, utils.CodeUnauthorized, err.Error())
+		// 明确返回账号或密码错误，而不是通用的 Unauthorized
+		// 状态码保持 401 以便前端拦截器处理（如果需要），或者改为 400
+		// 这里选择 200 + 业务错误码 或者 400 + 具体错误信息
+		// 前端通常根据 http status 判断，但为了用户体验，我们在 message 中明确说明
+		utils.Error(c, utils.CodeUnauthorized, "账号或密码错误")
 		return
 	}
 
@@ -405,4 +409,41 @@ func (ac *AuthController) ResetPassword(c *gin.Context) {
 	}
 
 	utils.SuccessWithMessage(c, "Password reset successfully", nil)
+}
+
+// UpdatePasswordRequest 修改密码请求
+type UpdatePasswordRequest struct {
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=8"`
+}
+
+// UpdatePassword 修改密码
+// @Summary 修改密码
+// @Description 修改当前登录用户的密码
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Security Bearer
+// @Param request body UpdatePasswordRequest true "修改密码信息"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/auth/update-password [post]
+func (ac *AuthController) UpdatePassword(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		utils.Error(c, utils.CodeUnauthorized, "unauthorized")
+		return
+	}
+
+	var req UpdatePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, utils.CodeValidationError, err.Error())
+		return
+	}
+
+	if err := ac.authService.UpdatePassword(userID, req.OldPassword, req.NewPassword); err != nil {
+		utils.Error(c, utils.CodeError, err.Error())
+		return
+	}
+
+	utils.SuccessWithMessage(c, "Password updated successfully", nil)
 }

@@ -4,6 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { HiArrowLeft, HiHeart, HiOutlineHeart, HiChat, HiLocationMarker, HiShare, HiCheckCircle, HiStar, HiBadgeCheck } from 'react-icons/hi';
 import { bookApi, userApi } from '../services/api';
 
+import { toast } from 'react-hot-toast';
+import { bookStatusLabel, normalizeBookStatus } from '../utils/status';
+
 interface Book {
   id: string;
   title: string;
@@ -14,16 +17,25 @@ interface Book {
   condition: string;
   description: string;
   category: string;
-  status: string;
+  status: any; // may be number or string from API
   views: number;
   likes: number;
-  Seller: {
+  seller: {
     id: string;
     username: string;
     avatar: string;
     trust_score: number;
     role?: string;
     roles?: string[];
+    rating_sum?: number;
+    rating_count?: number;
+  };
+  address?: {
+    id?: string;
+    province?: string;
+    city?: string;
+    district?: string;
+    address?: string;
   };
   CreatedAt: string;
 }
@@ -33,32 +45,80 @@ export default function BookDetail() {
   const navigate = useNavigate();
   const [book, setBook] = useState<Book | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isWishlisted, setIsWishlisted] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
     if (id) {
       loadBook(id);
       checkWishlist(id);
+      // TODO: checkLike status if API supports it
     }
   }, [id]);
 
+  useEffect(() => {
+      if (book) {
+          const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+          setIsOwner(userInfo.id === book.seller?.id);
+      }
+  }, [book]);
+
   const loadBook = async (bookId: string) => {
     try {
-      const data = await bookApi.getBook(bookId);
-      // 类型安全处理：不再使用 as any
-      // 假设 api 返回的数据结构已经规范化，如果不规范，建议在 api 层统一处理
-      const bookData = (data as any).data || data; 
-      // TODO: 定义严格的 API 响应接口，避免 (data as any)
-      setBook(bookData);
+      setError(null);
+      const res = await bookApi.getBook(bookId);
+
+      // 支持多种返回格式：
+      // 1) 直接返回 book 对象
+      // 2) 返回 { book: {...}, ... }
+      // 3) 返回包装 { data: {...} } （不常见，保守处理）
+      const payload: any = res as any;
+      let bookData: any = null;
+
+      if (!payload) {
+        bookData = null;
+      } else if (payload.book) {
+        bookData = payload.book;
+      } else if (payload.data) {
+        // payload.data 可能是 book 对象或 { book: ... }
+        bookData = payload.data.book || payload.data;
+      } else {
+        bookData = payload;
+      }
+
+      if (bookData && (bookData.id || bookData.ID)) {
+        // 处理 images 字段，可能是 JSON 字符串
+        if (typeof bookData.images === 'string') {
+          try {
+            bookData.images = JSON.parse(bookData.images);
+          } catch (e) {
+            console.error('Failed to parse images JSON:', e);
+            bookData.images = [];
+          }
+        }
+
+        setBook(bookData);
+      } else {
+        console.error('Invalid book data received:', bookData);
+        setError('无效的书籍数据');
+        setBook(null);
+      }
     } catch (error) {
       console.error('Failed to load book:', error);
+      setError('加载书籍失败，请稍后重试');
+      setBook(null);
     } finally {
       setLoading(false);
     }
   };
 
   const checkWishlist = async (bookId: string) => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+
     try {
       const user = await userApi.getMyProfile();
       // 拦截器已统一解包
@@ -73,7 +133,8 @@ export default function BookDetail() {
       } catch (e) {
         list = [];
       }
-      setIsWishlisted(list.includes(bookId));
+      // Ensure IDs are compared as strings
+      setIsWishlisted(list.map(String).includes(String(bookId)));
     } catch (error) {
       console.error('Failed to check wishlist:', error);
     }
@@ -87,12 +148,43 @@ export default function BookDetail() {
         return;
     }
 
+    // Optimistic update
+    const previousState = isWishlisted;
+    setIsWishlisted(!previousState);
+
     try {
-      setIsWishlisted(!isWishlisted);
-      await userApi.toggleWishlist(id);
+      const res = await userApi.toggleWishlist(id);
+      const data = (res as any).data || res;
+      // Backend returns { message: "...", is_wishlisted: boolean }
+      if (typeof data.is_wishlisted !== 'undefined') {
+          setIsWishlisted(data.is_wishlisted);
+          toast.success(data.is_wishlisted ? '已加入心愿单' : '已取消收藏');
+      }
     } catch (error) {
       console.error('Failed to toggle wishlist:', error);
-      setIsWishlisted(!isWishlisted);
+      setIsWishlisted(previousState); // Revert on error
+      toast.error('操作失败，请重试');
+    }
+  };
+
+  const handleLike = async () => {
+    if (!id) return;
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+        navigate('/login', { state: { from: location } });
+        return;
+    }
+
+    const previousState = isLiked;
+    setIsLiked(!previousState);
+
+    try {
+      await bookApi.likeBook(id);
+      // Assuming like is just increment, no toggle state from backend usually, but let's assume success
+      toast.success(!previousState ? '点赞成功' : '已取消点赞');
+    } catch (error) {
+      console.error('Failed to like book:', error);
+      setIsLiked(previousState);
     }
   };
 
@@ -103,7 +195,47 @@ export default function BookDetail() {
         navigate('/login', { state: { from: location } });
         return;
     }
-    navigate(`/chats/new?userId=${book.Seller.id}`);
+    
+    // Check if Seller exists
+    if (!book.seller || !book.seller.id) {
+        toast.error('卖家信息无效，无法联系');
+        return;
+    }
+
+    // 检查是否是自己的书
+    const userInfo = userApi.getCurrentUser();
+    if (userInfo && userInfo.id === book.seller.id) {
+        toast.error('不能联系自己');
+        return;
+    }
+    
+    // 直接跳转到聊天页面，带上目标用户ID
+    // 聊天页面会处理会话的创建或查找
+    navigate(`/chats/new?userId=${book.seller.id}`);
+  };
+
+  const handleUpdateStatus = async (newStatus: number) => {
+      if (!book) return;
+      try {
+          await bookApi.updateBook(book.id, { status: newStatus });
+          toast.success('状态更新成功');
+          setBook({ ...book, status: newStatus });
+      } catch (error) {
+          console.error('Failed to update status:', error);
+          toast.error('状态更新失败');
+      }
+  };
+
+  const handleDelete = async () => {
+      if (!book || !confirm('确定要下架这本书吗？')) return;
+      try {
+          await bookApi.deleteBook(book.id);
+          toast.success('下架成功');
+          navigate('/profile');
+      } catch (error) {
+          console.error('Failed to delete book:', error);
+          toast.error('下架失败');
+      }
   };
 
   if (loading) {
@@ -114,16 +246,16 @@ export default function BookDetail() {
     );
   }
 
-  if (!book) {
+  if (error || !book) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
-        <p className="text-gray-500 mb-4">未找到该书籍信息</p>
+        <p className="text-gray-500 mb-4">{error || '未找到该书籍信息'}</p>
         <button onClick={() => navigate(-1)} className="text-blue-600">返回上一页</button>
       </div>
     );
   }
 
-  const images = book.images && book.images.length > 0 ? book.images : [book.cover];
+  const images = (book.images && Array.isArray(book.images) && book.images.length > 0) ? book.images : [book.cover || '/images/default_book.jpg'];
 
   return (
     <div className="pb-20 md:pb-0">
@@ -136,7 +268,14 @@ export default function BookDetail() {
         >
           <HiArrowLeft className="text-xl text-gray-800" />
         </button>
-        <button aria-label="分享" className="bg-white/80 backdrop-blur-md p-2 rounded-full shadow-sm pointer-events-auto active:scale-95 transition-transform">
+        <button 
+          aria-label="分享" 
+          onClick={() => {
+            navigator.clipboard.writeText(window.location.href);
+            toast.success('链接已复制');
+          }}
+          className="bg-white/80 backdrop-blur-md p-2 rounded-full shadow-sm pointer-events-auto active:scale-95 transition-transform"
+        >
           <HiShare className="text-xl text-gray-800" />
         </button>
       </div>
@@ -149,6 +288,12 @@ export default function BookDetail() {
               <motion.img
                 key={currentImageIndex}
                 src={images[currentImageIndex]}
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  if (!target.src.includes('default_book.jpg')) {
+                    target.src = '/images/default_book.jpg';
+                  }
+                }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -200,7 +345,10 @@ export default function BookDetail() {
           
           <div className="flex flex-wrap items-center text-sm text-gray-500 mb-6 gap-3">
             <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold">{book.condition}</span>
-            <span className="flex items-center gap-1 bg-gray-100 px-3 py-1 rounded-full text-xs"><HiLocationMarker /> {book.status === 'sold' ? '已售出' : '在售'}</span>
+            <span className="flex items-center gap-1 bg-gray-100 px-3 py-1 rounded-full text-xs"><HiLocationMarker /> {bookStatusLabel(book.status)}</span>
+            {book.address && book.address.address && (
+              <span className="flex items-center gap-1 bg-gray-100 px-3 py-1 rounded-full text-xs"><HiLocationMarker /> {book.address.address}</span>
+            )}
             <span className="flex items-center gap-1 bg-gray-100 px-3 py-1 rounded-full text-xs"><HiCheckCircle className="text-green-500"/> {book.author}</span>
             <span className="text-xs">{book.views} 次浏览</span>
           </div>
@@ -213,39 +361,107 @@ export default function BookDetail() {
             </p>
           </div>
 
-          <div className="bg-gray-50 p-4 rounded-xl flex items-center gap-4 mb-8">
-            <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-white overflow-hidden shadow-sm">
-              {book.Seller?.avatar ? (
-                <img src={book.Seller.avatar} alt={book.Seller.username} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-blue-100 text-blue-600 font-bold text-xl">
-                  {book.Seller?.username?.[0]?.toUpperCase()}
-                </div>
-              )}
+          <div className="bg-gray-50 p-4 rounded-xl flex items-center gap-4 mb-8 overflow-hidden">
+            <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-white overflow-hidden shadow-sm shrink-0">
+              <img 
+                src={book.seller?.avatar || '/images/default_avatar.jpg'} 
+                alt={book.seller?.username || 'Seller'} 
+                className="w-full h-full object-cover" 
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  if (!target.src.includes('default_avatar.jpg')) {
+                    target.src = '/images/default_avatar.jpg';
+                  }
+                }}
+              />
             </div>
-            <div className="flex-1">
-              <div className="font-bold text-gray-900 text-lg flex items-center gap-2">
-                {book.Seller?.username}
-                {(book.Seller?.role === 'admin' || book.Seller?.roles?.includes('admin')) && (
-                   <span className="bg-purple-600 text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 font-normal">
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-gray-900 text-lg flex items-center gap-2 truncate">
+                {book.seller?.username || '账号已注销'}
+                {(book.seller?.role === 'admin' || book.seller?.roles?.includes('admin')) && (
+                   <span className="bg-purple-600 text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 font-normal shrink-0">
                      <HiBadgeCheck /> 管理员
                    </span>
                 )}
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-500">
-                <span className="flex items-center gap-1 text-yellow-500"><HiStar /> {book.Seller?.trust_score} 信任分</span>
+              <div className="flex items-center gap-3 text-sm text-gray-500">
+                <span className="flex items-center gap-1 text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded-full"><HiBadgeCheck /> 信任分: {book.seller?.trust_score || 0}</span>
+                <span className="flex items-center gap-1 text-yellow-600 font-medium bg-yellow-50 px-2 py-0.5 rounded-full border border-yellow-200">
+                    <HiStar className="text-yellow-500" /> 
+                    {(() => {
+                        const sum = book.seller?.rating_sum || 0;
+                        const count = book.seller?.rating_count || 0;
+                        return count > 0 ? (sum / count).toFixed(1) : '0.0';
+                    })()} 
+                    <span className="text-xs font-normal text-gray-400 ml-0.5">({book.seller?.rating_count || 0})</span>
+                </span>
               </div>
             </div>
-            <button className="text-blue-600 font-medium hover:bg-blue-50 px-4 py-2 rounded-lg transition-colors">
-              查看主页
-            </button>
+            <div className="flex gap-2 shrink-0">
+              <button 
+                onClick={handleContactSeller}
+                disabled={!book.seller?.id}
+                className="bg-blue-600 text-white hover:bg-blue-700 px-3 py-2 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium shadow-sm disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                <HiChat className="text-base" />
+                私信
+              </button>
+              <button
+                onClick={() => {
+                  // 发送商品链接到私信（跳转并附带分享参数）
+                  if (!book.seller?.id) return;
+                  const params = new URLSearchParams();
+                  params.set('userId', book.seller.id);
+                  params.set('shareListingId', book.id);
+                  params.set('shareTitle', book.title);
+                  navigate(`/chats/new?${params.toString()}`);
+                }}
+                className="text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 px-3 py-2 rounded-lg transition-colors text-sm flex items-center gap-1"
+              >
+                发送商品链接
+              </button>
+              <button 
+                onClick={() => book.seller?.id && navigate(`/users/${book.seller.id}`)}
+                disabled={!book.seller?.id}
+                className="text-blue-600 font-medium hover:bg-blue-50 px-3 py-2 rounded-lg transition-colors text-sm border border-blue-100 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                查看主页
+              </button>
+            </div>
           </div>
 
           {/* Desktop Actions */}
+          {isOwner ? (
+            <div className="flex flex-col gap-3 w-full">
+                <div className="flex gap-3">
+                    <button 
+                      onClick={() => handleUpdateStatus(1)}
+                      disabled={normalizeBookStatus(book.status) === 1}
+                      className={`flex-1 py-3 rounded-xl font-bold shadow-sm transition-all ${normalizeBookStatus(book.status) === 1 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >
+                      设为在售
+                    </button>
+                    <button 
+                      onClick={() => handleUpdateStatus(2)}
+                      disabled={normalizeBookStatus(book.status) === 0}
+                      className={`flex-1 py-3 rounded-xl font-bold shadow-sm transition-all ${normalizeBookStatus(book.status) === 0 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >
+                      设为已售出
+                    </button>
+                </div>
+              <button 
+                onClick={handleDelete}
+                className="w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-bold shadow-sm transition-all"
+              >
+                下架/删除书籍
+              </button>
+            </div>
+          ) : (
           <div className="hidden md:flex gap-4">
             <button 
               onClick={handleContactSeller}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold shadow-sm transition-all transform active:scale-95 flex items-center justify-center gap-2 text-lg"
+              disabled={!book.seller?.id}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold shadow-sm transition-all transform active:scale-95 flex items-center justify-center gap-2 text-lg disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
             >
               <HiChat className="text-xl" />
               联系卖家
@@ -257,15 +473,47 @@ export default function BookDetail() {
               {isWishlisted ? <HiHeart className="text-xl" /> : <HiOutlineHeart className="text-xl" />}
               {isWishlisted ? '已收藏' : '收藏'}
             </button>
-            <button aria-label="分享" className="p-3 rounded-xl border-2 border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50 transition-all">
+            <button 
+              onClick={handleLike}
+              className={`px-6 py-3 rounded-xl font-bold border-2 flex items-center gap-2 transition-all ${isLiked ? 'border-blue-500 text-blue-500 bg-blue-50' : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}
+            >
+              <HiStar className="text-xl" />
+              {isLiked ? '已点赞' : '点赞'}
+            </button>
+            <button 
+              aria-label="分享" 
+              onClick={() => {
+                navigator.clipboard.writeText(window.location.href);
+                toast.success('链接已复制到剪贴板');
+              }}
+              className="p-3 rounded-xl border-2 border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50 transition-all active:scale-95"
+            >
               <HiShare className="text-xl" />
             </button>
           </div>
+          )}
         </div>
       </div>
 
       {/* Mobile Bottom Action Bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-3 px-6 flex items-center gap-4 z-50 md:hidden">
+        {isOwner ? (
+             <div className="flex gap-3 w-full">
+                 <button 
+                   onClick={() => handleUpdateStatus(normalizeBookStatus(book.status) === 1 ? 2 : 1)}
+                   className="flex-1 bg-blue-600 text-white rounded-full py-2.5 font-medium shadow-md"
+                 >
+                   {normalizeBookStatus(book.status) === 1 ? '设为已售出' : '设为在售'}
+                 </button>
+                 <button 
+                   onClick={handleDelete}
+                   className="flex-1 bg-red-600 text-white rounded-full py-2.5 font-medium shadow-md"
+                 >
+                   下架
+                 </button>
+             </div>
+        ) : (
+            <>
         <button 
           onClick={handleToggleWishlist}
           className="flex flex-col items-center gap-1 text-gray-500 min-w-[3rem]"
@@ -279,12 +527,23 @@ export default function BookDetail() {
         </button>
         
         <button 
+          onClick={handleLike}
+          className="flex flex-col items-center gap-1 text-gray-500 min-w-[3rem]"
+        >
+          <HiStar className={`text-2xl ${isLiked ? 'text-blue-500' : ''}`} />
+          <span className="text-[10px]">{isLiked ? '已点赞' : '点赞'}</span>
+        </button>
+
+        <button 
           onClick={handleContactSeller}
-          className="flex-1 bg-blue-600 text-white rounded-full py-2.5 font-medium shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2"
+          disabled={!book.seller?.id}
+          className="flex-1 bg-blue-600 text-white rounded-full py-2.5 font-medium shadow-md active:scale-95 transition-transform flex items-center justify-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
         >
           <HiChat className="text-lg" />
           联系卖家
         </button>
+            </>
+        )}
       </div>
     </div>
   );

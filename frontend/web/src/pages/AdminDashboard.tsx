@@ -1,25 +1,32 @@
 import { useEffect, useState } from 'react';
-import { userApi } from '../services/api';
-import { HiUsers, HiDatabase, HiChip, HiLightningBolt, HiRefresh } from 'react-icons/hi';
+import { adminApi } from '../services/api';
+import { Link } from 'react-router-dom';
+import { HiUsers, HiDatabase, HiChip, HiLightningBolt, HiRefresh, HiUserGroup, HiBookOpen, HiCurrencyYen, HiLocationMarker, HiExclamation } from 'react-icons/hi';
 import { toast } from 'react-hot-toast';
 
-interface SystemStats {
-  goroutines: number;
-  online_users: number;
-  websocket_clients: number;
-  db_open_conns: number;
-  redis_hit_rate: string;
+interface DashboardStats {
+  system: {
+    goroutines: number;
+    online_users: number;
+    websocket_clients: number;
+    db_open_conns: number;
+    redis_hit_rate: string;
+  };
+  users: number;
+  books: number;
+  transactions: number;
+  pending_reports: number;
 }
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState<SystemStats | null>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const data = await userApi.admin.getStats();
-      setStats((data as any).data || data);
+      const data: any = await adminApi.getStats();
+      setStats(data);
       toast.success('系统状态已更新');
     } catch (error) {
       console.error('Failed to fetch stats:', error);
@@ -61,40 +68,89 @@ export default function AdminDashboard() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatCard 
-          title="在线用户" 
-          value={stats?.online_users || 0} 
-          icon={<HiUsers className="text-blue-600" />} 
-          color="bg-blue-50"
-        />
-        <StatCard 
-          title="WebSocket 连接" 
-          value={stats?.websocket_clients || 0} 
-          icon={<HiLightningBolt className="text-yellow-600" />} 
-          color="bg-yellow-50"
-        />
-        <StatCard 
-          title="Goroutines" 
-          value={stats?.goroutines || 0} 
-          icon={<HiChip className="text-purple-600" />} 
-          color="bg-purple-50"
-        />
-        <StatCard 
-          title="DB 连接数" 
-          value={stats?.db_open_conns || 0} 
-          icon={<HiDatabase className="text-green-600" />} 
-          color="bg-green-50"
-        />
+      <div className="mb-8">
+        <h2 className="text-lg font-bold text-gray-900 mb-4">功能管理</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Link to="/admin/users" className="block">
+            <StatCard 
+              title="用户管理" 
+              value={stats?.users || 0} 
+              icon={<HiUserGroup className="text-blue-600" />} 
+              color="bg-blue-50"
+            />
+          </Link>
+          <Link to="/admin/books" className="block">
+            <StatCard 
+              title="书籍管理" 
+              value={stats?.books || 0} 
+              icon={<HiBookOpen className="text-green-600" />} 
+              color="bg-green-50"
+            />
+          </Link>
+          <Link to="/admin/transactions" className="block">
+            <StatCard 
+              title="交易管理" 
+              value={stats?.transactions || 0} 
+              icon={<HiCurrencyYen className="text-yellow-600" />} 
+              color="bg-yellow-50"
+            />
+          </Link>
+          <Link to="/admin/reports" className="block">
+            <StatCard 
+              title="举报处理" 
+              value={stats?.pending_reports || 0} 
+              icon={<HiExclamation className="text-red-600" />} 
+              color="bg-red-50"
+            />
+          </Link>
+          <Link to="/admin/addresses" className="block">
+            <StatCard 
+              title="地址管理" 
+              value="Addr" 
+              icon={<HiLocationMarker className="text-purple-600" />} 
+              color="bg-purple-50"
+            />
+          </Link>
+        </div>
+      </div>
+
+      <div className="mb-8">
+        <h2 className="text-lg font-bold text-gray-900 mb-4">系统监控</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatCard 
+            title="在线用户" 
+            value={stats?.system.online_users || 0} 
+            icon={<HiUsers className="text-blue-600" />} 
+            color="bg-blue-50"
+          />
+          <StatCard 
+            title="WebSocket 连接" 
+            value={stats?.system.websocket_clients || 0} 
+            icon={<HiLightningBolt className="text-yellow-600" />} 
+            color="bg-yellow-50"
+          />
+          <StatCard 
+            title="Goroutines" 
+            value={stats?.system.goroutines || 0} 
+            icon={<HiChip className="text-purple-600" />} 
+            color="bg-purple-50"
+          />
+          <StatCard 
+            title="DB 连接数" 
+            value={stats?.system.db_open_conns || 0} 
+            icon={<HiDatabase className="text-green-600" />} 
+            color="bg-green-50"
+          />
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <h2 className="text-lg font-bold text-gray-900 mb-4">系统详情</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <DetailItem label="Redis 命中率" value={stats?.redis_hit_rate || 'N/A'} />
+          <DetailItem label="Redis 命中率" value={stats?.system.redis_hit_rate || 'N/A'} />
+          <DetailItem label="待处理举报" value={stats?.pending_reports.toString() || '0'} />
           <DetailItem label="服务器时间" value={new Date().toLocaleString()} />
-          <DetailItem label="数据一致性检查" value="运行中 (每小时)" />
-          <DetailItem label="系统版本" value="v1.0.0" />
+          <DetailItem label="系统版本" value="v1.1.0" />
         </div>
       </div>
     </div>
@@ -103,7 +159,7 @@ export default function AdminDashboard() {
 
 function StatCard({ title, value, icon, color }: { title: string, value: number | string, icon: React.ReactNode, color: string }) {
   return (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4 transition-transform hover:-translate-y-1">
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-center gap-4 transition-transform hover:-translate-y-1 h-full">
       <div className={`w-12 h-12 rounded-lg flex items-center justify-center text-2xl ${color}`}>
         {icon}
       </div>

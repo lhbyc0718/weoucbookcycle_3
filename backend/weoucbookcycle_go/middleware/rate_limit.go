@@ -51,8 +51,9 @@ func (i *RateLimiter) GetLimiter(ip string) *rate.Limiter {
 
 // RateLimitMiddleware is the middleware for rate limiting
 func RateLimitMiddleware() gin.HandlerFunc {
-	// 5 requests per second, burst of 10
-	limiter := NewRateLimiter(5, 10)
+	// 提高默认速率限制以减少开发环境中并发请求导致的 429
+	// 20 requests per second, burst of 50
+	limiter := NewRateLimiter(20, 50)
 
 	return func(c *gin.Context) {
 		ip := c.ClientIP()

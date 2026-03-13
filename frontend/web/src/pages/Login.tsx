@@ -70,6 +70,7 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [captchaId, setCaptchaId] = useState('');
   const [captchaImage, setCaptchaImage] = useState('');
   const [captchaVal, setCaptchaVal] = useState('');
@@ -83,6 +84,12 @@ export default function Login() {
 
   // Get the redirect path from location state, or default to home
   const from = location.state?.from?.pathname || '/';
+
+  useEffect(() => {
+    if (location.state?.isRegister) {
+      setIsLogin(false);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     if (!isLogin && !verificationSent && !showForgotPassword) {
@@ -109,53 +116,67 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (isLogin) {
-      // Login Logic
-      if (!identifier || !password) {
-        toast.error('请填写所有必填字段');
-        return;
+      if (isLogin) {
+        // Login Logic
+        if (!identifier || !password) {
+          toast.error('请填写所有必填字段');
+          return;
+        }
+        setLoading(true);
+        try {
+          const res = await authApi.login({ identifier, password });
+          const data = (res as any).data || res;
+          localStorage.setItem('authToken', data.token);
+          localStorage.setItem('userInfo', JSON.stringify(data.user));
+          toast.success('登录成功');
+          window.dispatchEvent(new Event('auth:login'));
+          navigate(from, { replace: true });
+        } catch (error: any) {
+          console.error(error);
+          toast.error(error.message || '登录失败');
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        // Register Logic
+        if (!username || !password || !captchaVal || (contactMethod === 'email' && !email) || (contactMethod === 'phone' && !phone)) {
+          toast.error('请填写所有必填字段');
+          return;
+        }
+        if (username.length < 3) {
+          toast.error('用户名至少需要3个字符');
+          return;
+        }
+        if (password.length < 8) {
+          toast.error('密码至少需要8个字符');
+          return;
+        }
+        if (password !== confirmPassword) {
+          toast.error('两次输入的密码不一致');
+          return;
+        }
+        setLoading(true);
+        try {
+          await authApi.register({ 
+            username, 
+            password, 
+            email: contactMethod === 'email' ? email : '', 
+            phone: contactMethod === 'phone' ? phone : '', 
+            captcha_id: captchaId, 
+            captcha_val: captchaVal 
+          });
+          toast.success('验证链接已发送，请查收邮件');
+          setVerificationSent(true);
+          // 清空验证码输入框，准备接收新的验证码
+          setCaptchaVal('');
+        } catch (error: any) {
+          console.error(error);
+          toast.error(error.message || '注册失败');
+          refreshCaptcha();
+        } finally {
+          setLoading(false);
+        }
       }
-      setLoading(true);
-      try {
-        const res = await authApi.login({ identifier, password });
-        const data = (res as any).data || res;
-        localStorage.setItem('authToken', data.token);
-        localStorage.setItem('userInfo', JSON.stringify(data.user));
-        toast.success('登录成功');
-        window.dispatchEvent(new Event('auth:login'));
-        navigate(from, { replace: true });
-      } catch (error: any) {
-        console.error(error);
-        toast.error(error.response?.data?.message || '登录失败');
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      // Register Logic
-      if (!username || !password || !captchaVal || (contactMethod === 'email' && !email) || (contactMethod === 'phone' && !phone)) {
-        toast.error('请填写所有必填字段');
-        return;
-      }
-      setLoading(true);
-      try {
-        await authApi.register({ 
-          username, 
-          password, 
-          email: contactMethod === 'email' ? email : '', 
-          phone: contactMethod === 'phone' ? phone : '', 
-          captcha_id: captchaId, 
-          captcha_val: captchaVal 
-        });
-        toast.success('验证链接/验证码已发送，请检查您的邮箱或短信');
-        setVerificationSent(true);
-      } catch (error: any) {
-        console.error(error);
-        toast.error(error.response?.data?.message || '注册失败');
-        refreshCaptcha();
-      } finally {
-        setLoading(false);
-      }
-    }
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
@@ -180,7 +201,7 @@ export default function Login() {
       setShowForgotPassword(false);
     } catch (error: any) {
       console.error(error);
-      toast.error(error.response?.data?.message || '请求失败');
+      toast.error(error.message || '请求失败');
       refreshCaptcha();
     } finally {
       setLoading(false);
@@ -279,14 +300,32 @@ export default function Login() {
             animate={{ opacity: 1, scale: 1 }}
             className="max-w-md w-full space-y-8 bg-white/90 backdrop-blur-sm p-8 rounded-2xl shadow-xl text-center"
           >
-            <h2 className="text-2xl font-bold text-gray-900">验证已发送</h2>
-            <p className="text-gray-600">
-              我们已向您的 {contactMethod === 'email' ? '邮箱' : '手机'} 发送了验证信息。<br/>
-              {contactMethod === 'email' ? '请点击邮件中的链接完成注册。' : '请输入收到的验证码完成注册。'}
+            <div className="flex flex-col items-center">
+                <div className="bg-gradient-to-br from-green-500 to-emerald-600 p-3 rounded-xl shadow-lg mb-4">
+                   <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                   </svg>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900">验证邮件已发送</h2>
+            </div>
+            
+            <p className="text-gray-600 mb-6">
+              我们已向您的 {contactMethod === 'email' ? '邮箱' : '手机'} 发送了验证链接。<br/>
+              请查收邮件并点击链接完成注册。
             </p>
+            
+            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-blue-800 text-left">
+              <p className="font-medium mb-1">提示：</p>
+              <ul className="list-disc list-inside space-y-1 text-blue-700/80">
+                <li>链接有效期为1小时</li>
+                <li>如果没有收到，请检查垃圾邮件文件夹</li>
+                <li>或者尝试重新注册</li>
+              </ul>
+            </div>
+
             <button 
               onClick={() => window.location.reload()}
-              className="text-blue-600 hover:text-blue-800 font-medium mt-4"
+              className="w-full mt-6 flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-md transition-all"
             >
               返回登录
             </button>
@@ -421,12 +460,34 @@ export default function Login() {
                     type="password"
                     required
                     className="block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2.5 focus:ring-0 focus:border-transparent"
-                    placeholder="密码"
+                    placeholder="密码 (至少8位)"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    minLength={8}
                   />
                 </div>
               </div>
+
+              {!isLogin && (
+                <div className="relative">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    确认密码
+                  </label>
+                  <div className="relative rounded-md shadow-sm transition-all duration-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <HiLockClosed className="text-gray-400" />
+                    </div>
+                    <input
+                      type="password"
+                      required
+                      className="block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2.5 focus:ring-0 focus:border-transparent"
+                      placeholder="请再次输入密码"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
 
               {!isLogin && (
                 <div className="relative">

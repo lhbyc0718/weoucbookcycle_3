@@ -21,6 +21,11 @@ type Transaction struct {
 	UpdatedAt     time.Time      `gorm:"comment:更新时间" json:"updated_at"`
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
 
+	// 评价系统
+	Rating     int    `gorm:"default:0;comment:评分(1-5)" json:"rating"`
+	Review     string `gorm:"type:text;comment:评价内容" json:"review,omitempty"`
+	IsReviewed bool   `gorm:"default:false;comment:是否已评价" json:"is_reviewed"`
+
 	// 关联
 	Listing Listing `gorm:"foreignKey:ListingID" json:"listing,omitempty"`
 	Buyer   User    `gorm:"foreignKey:BuyerID" json:"buyer,omitempty"`

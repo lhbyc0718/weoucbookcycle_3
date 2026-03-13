@@ -42,10 +42,17 @@ func GenerateCaptcha() (string, string, error) {
 // id: 验证码ID
 // digits: 用户输入的数字
 func VerifyCaptcha(id string, digits string) bool {
+	// 验证Captcha
+	// 注意：dchest/captcha 默认存储在内存中。如果服务器重启，验证码将丢失。
+	// 在生产环境中，应该使用 Redis 或其他持久化存储。
+	// 这里为了简单，我们假设是单机部署，且不重启。
 	if id == "" || digits == "" {
 		return false
 	}
-	// VerifyString 验证成功后会删除该ID，防止重放攻击
+
+	// 如果是开发环境，允许万能验证码 (仅用于测试)
+	// if digits == "000000" { return true }
+
 	return captcha.VerifyString(id, digits)
 }
 

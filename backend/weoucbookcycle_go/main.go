@@ -15,10 +15,12 @@ import (
 	"weoucbookcycle_go/models"
 	"weoucbookcycle_go/routes"
 	"weoucbookcycle_go/services"
+	"weoucbookcycle_go/utils"
 	"weoucbookcycle_go/websocket"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -63,7 +65,7 @@ func main() {
 	config.PrintStartupInfo(config.GetServerConfig().Port, os.Getenv("API_BASE"), config.GetUseCloud())
 
 	// 自动迁移：必须显式开启（避免生产环境意外修改）
-	enableAuto := os.Getenv("ENABLE_AUTO_MIGRATE")
+	enableAuto := config.GetEnv("ENABLE_AUTO_MIGRATE", "true") // 默认改为 true，方便开发
 
 	// 只有当显式开启 ENABLE_AUTO_MIGRATE=true 时才运行
 	if enableAuto == "true" {
@@ -75,16 +77,25 @@ func main() {
 			&models.Chat{},
 			&models.ChatUser{},
 			&models.Transaction{}, // 新增
-			&models.Order{},       // 新增
-			&models.Wishlist{},    // 新增
+			&models.Notification{},
+			&models.Report{},
+			&models.Order{},    // 新增
+			&models.Wishlist{}, // 新增
+			&models.Address{},
+			&models.Block{},
 		); err != nil {
 			log.Printf("Warning: auto migrate failed: %v", err)
 		} else {
 			log.Println("✅ AutoMigrate completed")
+			// 迁移成功后尝试插入一些默认官方地址（幂等）
+			seedDefaultAddresses()
 		}
 	} else {
 		log.Println("AutoMigrate skipped (ENABLE_AUTO_MIGRATE != true)")
 	}
+
+	// 确保存在默认管理员账号（幂等）
+	ensureDefaultAdmin()
 
 	// 初始化Redis
 	if err := config.InitializeRedis(); err != nil {
@@ -92,9 +103,23 @@ func main() {
 	}
 	defer config.CloseRedis()
 
+	// 确保 books 表包含 address_id 列（向后兼容）
+	ensureBookAddressColumn()
+
+	// 确保 transactions 表包含 rating 相关列
+	ensureTransactionRatingColumns()
+
 	// 初始化对象存储（S3/MinIO等）
 	if err := config.InitializeStorage(); err != nil {
 		log.Fatalf("Failed to initialize object storage: %v", err)
+	}
+
+	// 初始化Elasticsearch
+	if err := config.InitializeElastic(); err != nil {
+		log.Printf("⚠️  Failed to initialize Elasticsearch: %v", err)
+		// 不强制退出，允许降级到普通搜索
+	} else {
+		log.Println("✅ Elasticsearch initialized successfully")
 	}
 
 	//初始化websocket
@@ -179,6 +204,132 @@ func main() {
 	}
 
 	log.Println("Server exiting")
+	// r.Run() is intentionally omitted here; server lifecycle is managed by the
+	// http.Server above and graceful shutdown has already completed.  Calling
+	// r.Run() again would attempt to listen on the same port and immediately
+	// fail or restart unexpectedly.
+}
+
+// seedDefaultAddresses 插入默认官方地址（幂等）
+func seedDefaultAddresses() {
+	defaults := []models.Address{
+		{Province: "福建省", City: "厦门市", District: "思明区", Address: "海大北海苑四号楼", Official: true, IsActive: true},
+		{Province: "福建省", City: "厦门市", District: "思明区", Address: "海大东海苑六号楼", Official: true, IsActive: true},
+	}
+
+	for _, a := range defaults {
+		var cnt int64
+		config.DB.Model(&models.Address{}).Where("province = ? AND city = ? AND address LIKE ? AND official = ?", a.Province, a.City, "%"+a.Address+"%", true).Count(&cnt)
+		if cnt == 0 {
+			if err := config.DB.Create(&a).Error; err != nil {
+				log.Printf("Failed to seed address %s: %v", a.Address, err)
+			} else {
+				log.Printf("Seeded default address: %s", a.Address)
+			}
+		}
+	}
+}
+
+// ensureBookAddressColumn 检查并在 books 表添加 address_id 列（幂等）
+func ensureBookAddressColumn() {
+	// 使用 GORM migrator 检查字段是否存在
+	if config.DB == nil {
+		log.Println("DB not initialized, skipping ensureBookAddressColumn")
+		return
+	}
+
+	// GORM 的 HasColumn 使用结构体字段名
+	has := config.DB.Migrator().HasColumn(&models.Book{}, "AddressID")
+	if has {
+		log.Println("books.address_id column exists")
+		return
+	}
+
+	// 尝试添加列，使用结构字段名 AddressID
+	if err := config.DB.Migrator().AddColumn(&models.Book{}, "AddressID"); err != nil {
+		log.Printf("Failed to add books.address_id column: %v", err)
+	} else {
+		log.Println("Added books.address_id column successfully")
+	}
+}
+
+// ensureTransactionRatingColumns 检查并在 transactions 表添加 rating, review, is_reviewed 列（幂等）
+func ensureTransactionRatingColumns() {
+	if config.DB == nil {
+		return
+	}
+
+	migrator := config.DB.Migrator()
+
+	// 检查并添加 rating 列
+	if !migrator.HasColumn(&models.Transaction{}, "Rating") {
+		if err := migrator.AddColumn(&models.Transaction{}, "Rating"); err != nil {
+			log.Printf("Failed to add transactions.rating column: %v", err)
+		} else {
+			log.Println("Added transactions.rating column successfully")
+		}
+	}
+
+	// 检查并添加 review 列
+	if !migrator.HasColumn(&models.Transaction{}, "Review") {
+		if err := migrator.AddColumn(&models.Transaction{}, "Review"); err != nil {
+			log.Printf("Failed to add transactions.review column: %v", err)
+		} else {
+			log.Println("Added transactions.review column successfully")
+		}
+	}
+
+	// 检查并添加 is_reviewed 列
+	if !migrator.HasColumn(&models.Transaction{}, "IsReviewed") {
+		if err := migrator.AddColumn(&models.Transaction{}, "IsReviewed"); err != nil {
+			log.Printf("Failed to add transactions.is_reviewed column: %v", err)
+		} else {
+			log.Println("Added transactions.is_reviewed column successfully")
+		}
+	}
+}
+
+// ensureDefaultAdmin 保证存在一个初始管理员（幂等）
+func ensureDefaultAdmin() {
+	if config.DB == nil {
+		log.Println("DB not initialized, skipping ensureDefaultAdmin")
+		return
+	}
+
+	username := config.GetEnv("ADMIN_USERNAME", "lyctzy")
+	password := config.GetEnv("ADMIN_PASSWORD", "A925179079b")
+	email := config.GetEnv("ADMIN_EMAIL", username+"@local")
+
+	var existing models.User
+	if err := config.DB.Where("username = ? OR email = ?", username, email).First(&existing).Error; err == nil {
+		log.Printf("Admin user exists: %s (username=%s)", existing.Email, existing.Username)
+		return
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("failed to hash admin password: %v", err)
+		return
+	}
+
+	now := time.Now()
+	u := models.User{
+		ID:            utils.GenerateUUID(),
+		Username:      username,
+		Email:         email,
+		Password:      string(hashed),
+		Role:          "admin",
+		TrustScore:    100,
+		EmailVerified: true,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	if err := config.DB.Create(&u).Error; err != nil {
+		log.Printf("failed to create default admin: %v", err)
+	} else {
+		log.Printf("Created default admin: %s (username=%s)", email, username)
+	}
 }
 
 // setupRouter 设置路由
@@ -264,6 +415,26 @@ func setupRouter() *gin.Engine {
 		}
 
 		c.JSON(200, health)
+	})
+
+	// 提供 /admin/login（通过通配符处理）并将所有 /admin 前缀请求重定向到 /admin/login
+	r.GET("/admin", func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/admin/login")
+		c.Abort()
+	})
+
+	// 使用单个通配符路由处理 /admin/*，避免 static vs wildcard 路由冲突
+	r.GET("/admin/*any", func(c *gin.Context) {
+		any := c.Param("any") // 包含前导 '/'
+		// 如果访问 /admin/login，则将其映射到前端实际登录页 /login
+		if any == "/login" || any == "/login/" {
+			c.Redirect(http.StatusFound, "/login")
+			c.Abort()
+			return
+		}
+		// 其他 /admin/* 路径统一跳转到 /admin/login
+		c.Redirect(http.StatusFound, "/admin/login")
+		c.Abort()
 	})
 
 	return r

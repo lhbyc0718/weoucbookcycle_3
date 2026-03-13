@@ -50,7 +50,15 @@ func Error(c *gin.Context, code int, message string) {
 	// 如果前端依赖HTTP状态码捕获错误(如axios拦截器)，则应返回对应4xx/5xx
 
 	httpStatus := http.StatusOK
-	if code < 1000 {
+	if code == CodeUnauthorized {
+		httpStatus = http.StatusUnauthorized
+	} else if code == CodeForbidden {
+		httpStatus = http.StatusForbidden
+	} else if code == CodeNotFound {
+		httpStatus = http.StatusNotFound
+	} else if code == CodeInternalServerError {
+		httpStatus = http.StatusInternalServerError
+	} else if code < 1000 {
 		httpStatus = code
 	}
 

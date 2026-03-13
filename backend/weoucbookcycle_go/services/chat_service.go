@@ -8,8 +8,10 @@ import (
 	"time"
 	"weoucbookcycle_go/config"
 	"weoucbookcycle_go/models"
+	"weoucbookcycle_go/utils"
 
 	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 )
 
 // ChatService 聊天服务
@@ -27,6 +29,7 @@ type MessageTask struct {
 	ChatID    string
 	UserID    string
 	Content   string
+	Type      string
 	Timestamp time.Time
 }
 
@@ -154,14 +157,40 @@ func (cs *ChatService) DeleteChat(chatID, userID string) error {
 		return errors.New("you don't have permission to delete this chat")
 	}
 
-	// 2. 软删除聊天
-	if err := config.DB.Delete(&models.Chat{}, "id = ?", chatID).Error; err != nil {
-		return fmt.Errorf("failed to delete chat: %w", err)
+	// 2. 仅删除当前用户的会话条（从 chat_users 表删除），保留聊天消息
+	if err := config.DB.Delete(&models.ChatUser{}, "chat_id = ? AND user_id = ?", chatID, userID).Error; err != nil {
+		return fmt.Errorf("failed to remove chat for user: %w", err)
 	}
 
-	// 3. 清除缓存
+	// 3. 如果该聊天已没有参与者，则删除聊天本身及其消息以清理孤儿数据
+	var cnt int64
+	config.DB.Model(&models.ChatUser{}).Where("chat_id = ?", chatID).Count(&cnt)
+	if cnt == 0 {
+		// 删除消息
+		config.DB.Where("chat_id = ?", chatID).Delete(&models.Message{})
+		// 删除chat
+		config.DB.Delete(&models.Chat{}, "id = ?", chatID)
+	}
+
+	// 4. 清除缓存
 	go cs.clearChatCaches(chatID)
 
+	return nil
+}
+
+// ClearMessages 清空指定聊天的所有消息（需要用户为参与者）
+func (cs *ChatService) ClearMessages(chatID, userID string) error {
+	var chatUser models.ChatUser
+	if err := config.DB.Where("chat_id = ? AND user_id = ?", chatID, userID).First(&chatUser).Error; err != nil {
+		return errors.New("you don't have permission to clear messages in this chat")
+	}
+
+	if err := config.DB.Where("chat_id = ?", chatID).Delete(&models.Message{}).Error; err != nil {
+		return fmt.Errorf("failed to clear messages: %w", err)
+	}
+
+	// 清除缓存
+	cs.clearChatCaches(chatID)
 	return nil
 }
 
@@ -169,13 +198,19 @@ func (cs *ChatService) DeleteChat(chatID, userID string) error {
 
 // SendMessage 发送消息
 // 优化：采用 DB-First 策略，先持久化再异步广播，防止消息丢失
-func (cs *ChatService) SendMessage(chatID, userID, content string) (*models.Message, error) {
+func (cs *ChatService) SendMessage(chatID, userID, content, msgType string) (*models.Message, error) {
 	// 1. 验证内容
 	if content == "" {
 		return nil, errors.New("message content cannot be empty")
 	}
 	if len(content) > 1000 {
 		return nil, errors.New("message content is too long (max 1000 characters)")
+	}
+	// 转换任何表情代码为 Unicode（例如 :smile: -> 😄）
+	content = utils.ConvertEmojiCodesToUnicode(content)
+
+	if msgType == "" {
+		msgType = "text"
 	}
 
 	// 2. 检查用户是否有权限发送消息
@@ -184,11 +219,27 @@ func (cs *ChatService) SendMessage(chatID, userID, content string) (*models.Mess
 		return nil, errors.New("you don't have permission to send messages in this chat")
 	}
 
+	// 2.1 检查接收者是否已将发送者拉黑（如果有任何接收者拉黑发送者，则阻止发送）
+	var participants []models.ChatUser
+	if err := config.DB.Where("chat_id = ?", chatID).Find(&participants).Error; err == nil {
+		for _, p := range participants {
+			if p.UserID == userID {
+				continue
+			}
+			// 检查 p.UserID 是否拉黑了 userID
+			var b models.Block
+			if err := config.DB.Where("blocker_id = ? AND blocked_id = ?", p.UserID, userID).First(&b).Error; err == nil {
+				return nil, errors.New("发送消息失败，对方已拉黑")
+			}
+		}
+	}
+
 	// 3. 立即持久化到数据库 (Sync)
 	message := models.Message{
 		ChatID:   chatID,
 		SenderID: userID,
 		Content:  content,
+		Type:     msgType,
 		IsRead:   false,
 	}
 
@@ -199,7 +250,7 @@ func (cs *ChatService) SendMessage(chatID, userID, content string) (*models.Mess
 	// 4. 将后置处理任务放入队列 (Async)
 	// 如果队列满，选择非阻塞丢弃（或者降级为同步执行，这里选择降级）
 	task := &MessageProcessTask{Message: &message}
-	
+
 	select {
 	case cs.processQueue <- task:
 		// 成功入队
@@ -302,25 +353,29 @@ func (cs *ChatService) GetChats(userID string) ([]ChatWithUnread, error) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	for _, chatID := range chatIDs {
+	for _, cu := range chatUsers {
 		wg.Add(1)
-		go func(id string) {
+		go func(chatUser models.ChatUser) {
 			defer wg.Done()
 
 			var chat models.Chat
 			if err := config.DB.
 				Preload("Users").
 				Preload("Users.User").
-				Where("id = ?", id).
+				Where("id = ?", chatUser.ChatID).
 				First(&chat).Error; err == nil {
 
-				// 从Redis获取未读数
-				var unreadCount int64
+				// 优先从Redis获取未读数，如果没有则使用数据库中的值
+				var unreadCount int64 = int64(chatUser.UnreadCount)
+
 				if config.RedisClient != nil {
-					unreadKey := fmt.Sprintf("unread:%s:%s", userID, id)
+					unreadKey := fmt.Sprintf("unread:%s:%s", userID, chatUser.ChatID)
 					unread, err := config.RedisClient.Get(redisCtx, unreadKey).Int64()
 					if err == nil {
 						unreadCount = unread
+					} else {
+						// 如果Redis中没有，将数据库的值同步到Redis
+						config.RedisClient.Set(redisCtx, unreadKey, unreadCount, 7*24*time.Hour)
 					}
 				}
 
@@ -334,7 +389,7 @@ func (cs *ChatService) GetChats(userID string) ([]ChatWithUnread, error) {
 				chats = append(chats, chatWithUnread)
 				mu.Unlock()
 			}
-		}(chatID)
+		}(cu)
 	}
 
 	wg.Wait()
@@ -362,10 +417,18 @@ func (cs *ChatService) MarkAsRead(chatID, userID string) error {
 		return fmt.Errorf("failed to mark messages as read: %w", err)
 	}
 
+	// 更新chat_users表的unread_count
+	config.DB.Model(&models.ChatUser{}).
+		Where("chat_id = ? AND user_id = ?", chatID, userID).
+		Update("unread_count", 0)
+
 	// 2. 清除Redis中的未读计数
 	if config.RedisClient != nil {
 		unreadKey := fmt.Sprintf("unread:%s:%s", userID, chatID)
 		config.RedisClient.Del(redisCtx, unreadKey)
+		// 清除未读交易标记
+		txKey := fmt.Sprintf("unread_tx:%s:%s", userID, chatID)
+		config.RedisClient.Del(redisCtx, txKey)
 	}
 
 	return nil
@@ -379,17 +442,33 @@ func (cs *ChatService) GetUnreadCount(userID string) (map[string]int64, int64, e
 
 	// 获取所有未读key
 	pattern := fmt.Sprintf("unread:%s:*", userID)
-	keys, _ := config.RedisClient.Keys(redisCtx, pattern).Result()
+	keys, err := config.RedisClient.Keys(redisCtx, pattern).Result()
+	if err != nil {
+		return nil, 0, err
+	}
 
 	totalUnread := int64(0)
 	chatUnread := make(map[string]int64)
 
+	// 仅在能成功解析为整数时计入总数，忽略非法或损坏的值
 	for _, key := range keys {
 		// 提取chat_id
-		chatID := key[len(fmt.Sprintf("unread:%s:", userID)):]
+		prefix := fmt.Sprintf("unread:%s:", userID)
+		if len(key) <= len(prefix) {
+			continue
+		}
+		chatID := key[len(prefix):]
 
 		// 获取未读数
-		count, _ := config.RedisClient.Get(redisCtx, key).Int64()
+		count, err := config.RedisClient.Get(redisCtx, key).Int64()
+		if err != nil {
+			// 忽略该键（可能已过期或值非整型）
+			continue
+		}
+		if count <= 0 {
+			// skip zero or negative values
+			continue
+		}
 		totalUnread += count
 		chatUnread[chatID] = count
 	}
@@ -477,6 +556,7 @@ func (cs *ChatService) processMessageDirect(task *MessageTask) (*models.Message,
 		ChatID:   task.ChatID,
 		SenderID: task.UserID,
 		Content:  task.Content,
+		Type:     task.Type,
 		IsRead:   false,
 	}
 
@@ -494,9 +574,16 @@ func (cs *ChatService) processMessageDirect(task *MessageTask) (*models.Message,
 func (cs *ChatService) processAfterSend(task *MessageProcessTask) error {
 	message := task.Message
 
+	lastMsg := message.Content
+	if message.Type == "image" {
+		lastMsg = "[图片]"
+	} else if message.Type == "emoji" {
+		lastMsg = "[表情]"
+	}
+
 	// 1. 更新聊天的最后消息和时间
 	if err := config.DB.Model(&models.Chat{}).Where("id = ?", message.ChatID).Updates(map[string]interface{}{
-		"last_message": message.Content,
+		"last_message": lastMsg,
 		"updated_at":   time.Now(),
 	}).Error; err != nil {
 		return err
@@ -508,13 +595,29 @@ func (cs *ChatService) processAfterSend(task *MessageProcessTask) error {
 		return err
 	}
 
-	// 3. 增加未读计数（给接收者）
+	// 3. 增加未读计数（给接收者 - 仅当接收者不在聊天室内时）
 	for _, chatUser := range chatUsers {
 		if chatUser.UserID != message.SenderID {
+			// 检查接收者是否在聊天室内（当前连接的WebSocket）
+			// 如果用户在聊天室，则不需要增加未读数（消息会直接推送给用户）
+			// 导入包会在后续处理
+
+			// 先更新数据库未读数
+			config.DB.Model(&models.ChatUser{}).
+				Where("chat_id = ? AND user_id = ?", message.ChatID, chatUser.UserID).
+				Update("unread_count", gorm.Expr("unread_count + 1"))
+
+			// 更新Redis未读数
 			if config.RedisClient != nil {
 				unreadKey := fmt.Sprintf("unread:%s:%s", chatUser.UserID, message.ChatID)
 				config.RedisClient.Incr(redisCtx, unreadKey)
 				config.RedisClient.Expire(redisCtx, unreadKey, 7*24*time.Hour)
+				// 若消息为交易类型，也设置未读交易标记（用于在会话列表高亮）
+				if message.Type == "transaction" {
+					txKey := fmt.Sprintf("unread_tx:%s:%s", chatUser.UserID, message.ChatID)
+					// 保存交易消息ID或简单标记为1
+					config.RedisClient.Set(redisCtx, txKey, message.ID, 7*24*time.Hour)
+				}
 			}
 		}
 	}
@@ -530,12 +633,22 @@ func (cs *ChatService) processAfterSend(task *MessageProcessTask) error {
 
 	// 5. 发布到Redis PubSub（用于WebSocket推送）
 	if config.RedisClient != nil {
+		// 收集接收者ID列表
+		var receiverIDs []string
+		for _, chatUser := range chatUsers {
+			receiverIDs = append(receiverIDs, chatUser.UserID)
+		}
+
 		pubMessage := map[string]interface{}{
-			"type":      "message",
-			"chat_id":   message.ChatID,
-			"sender_id": message.SenderID,
-			"content":   message.Content,
-			"timestamp": message.CreatedAt.Unix(),
+			"id":           message.ID,
+			"type":         "message",
+			"msg_type":     message.Type,
+			"chat_id":      message.ChatID,
+			"sender_id":    message.SenderID,
+			"content":      message.Content,
+			"created_at":   message.CreatedAt.Format(time.RFC3339),
+			"timestamp":    message.CreatedAt.Unix(),
+			"receiver_ids": receiverIDs, // 添加接收者列表
 		}
 		data, _ := json.Marshal(pubMessage)
 		config.RedisClient.Publish(redisCtx, "chat:message", data)

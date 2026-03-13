@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HiSearch, HiFilter, HiX } from 'react-icons/hi';
 import { bookApi, searchApi } from '../services/api';
+import { wsService } from '../services/websocket';
 import clsx from 'clsx';
 
 interface Book {
@@ -13,6 +14,10 @@ interface Book {
   price: number;
   condition: string;
   category: string;
+  seller: {
+      id: string;
+      username: string;
+  };
   sellerId: string;
   views?: number;
 }
@@ -39,6 +44,16 @@ export default function Market() {
 
   useEffect(() => {
     loadBooks(1, false);
+    // subscribe to realtime book created events to refresh list
+    const onBookCreated = (data: any) => {
+      // simply reload first page when new book is created
+      loadBooks(1, false);
+    };
+    wsService.connect();
+    wsService.subscribe('book_created', onBookCreated);
+    return () => {
+      wsService.unsubscribe('book_created', onBookCreated);
+    };
   }, [category, condition, sortBy]);
 
   const loadBooks = async (pageNum: number, isLoadMore: boolean) => {
@@ -53,7 +68,23 @@ export default function Market() {
       params.sort = sortBy;
       
       const data = await bookApi.getBooks(params);
-      const bookList = Array.isArray(data) ? data : (data as any).books || (data as any).data || [];
+      
+      // 修复图片显示问题：检查 book.cover 和 book.images
+      const bookList = (Array.isArray(data) ? data : (data as any).books || (data as any).data || []).map((b: any) => {
+          let cover = b.cover;
+          if (!cover || cover === '') {
+             if (b.images) {
+                 try {
+                     const imgs = typeof b.images === 'string' ? JSON.parse(b.images) : b.images;
+                     if (Array.isArray(imgs) && imgs.length > 0) {
+                         cover = imgs[0];
+                     }
+                 } catch (e) {}
+             }
+          }
+          if (!cover) cover = '/images/default_book.jpg';
+          return { ...b, cover };
+      });
       
       const filtered = bookList.filter((b: Book) => 
         b.price >= priceRange[0] && b.price <= priceRange[1]
@@ -320,23 +351,39 @@ export default function Market() {
                   className="bg-white rounded-xl shadow-sm hover:shadow-md border border-gray-100 overflow-hidden cursor-pointer transition-all group"
                   onClick={() => navigate(`/books/${book.id}`)}
                 >
-                  <div className="aspect-[3/4] relative overflow-hidden">
-                    <img src={book.cover} alt={book.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" loading="lazy" />
+                  <div className="aspect-[3/4] relative overflow-hidden bg-gray-100">
+                    <img 
+                        src={book.cover} 
+                        alt={book.title} 
+                        className="w-full h-full object-cover transition-transform group-hover:scale-105" 
+                        loading="lazy" 
+                        onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            if (!target.src.includes('default_book.jpg')) {
+                                target.src = '/images/default_book.jpg';
+                            }
+                        }}
+                    />
                     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
-                      <span className="text-white text-xs font-medium">{book.condition}</span>
+                      <span className="text-white text-xs font-medium bg-black/30 px-2 py-0.5 rounded backdrop-blur-sm">{book.condition}</span>
                     </div>
                   </div>
                   <div className="p-3">
-                    <h4 className="font-medium text-sm text-gray-900 line-clamp-2 h-10 leading-5 mb-1 group-hover:text-blue-600 transition-colors">{book.title}</h4>
-                    <div className="flex justify-between items-center">
-                      <span className="text-red-500 font-bold">¥{book.price}</span>
+                    <h4 className="font-medium text-sm text-gray-900 line-clamp-2 h-10 leading-5 mb-1 group-hover:text-blue-600 transition-colors" title={book.title}>{book.title}</h4>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-red-600 font-bold text-lg">¥{book.price}</span>
                       <span className="text-xs text-gray-400">{book.views || 0}浏览</span>
                     </div>
-                    <div className="mt-2 flex items-center gap-1">
-                      <div className="w-4 h-4 rounded-full bg-gray-200 overflow-hidden">
-                          <div className="w-full h-full bg-blue-100 flex items-center justify-center text-[8px] text-blue-600 font-bold">{book.sellerId?.[0]?.toUpperCase()}</div>
+                    <div className="flex items-center gap-1.5 border-t border-gray-50 pt-2">
+                      <div className="w-5 h-5 rounded-full bg-gray-100 overflow-hidden flex-shrink-0">
+                          {/* Seller avatar or initial */}
+                          <div className="w-full h-full bg-blue-100 flex items-center justify-center text-[9px] text-blue-600 font-bold">
+                              {(book as any).seller?.username?.[0]?.toUpperCase() || 'S'}
+                          </div>
                       </div>
-                      <span className="text-xs text-gray-500 truncate max-w-[4rem]">{book.sellerId}</span>
+                      <span className="text-xs text-gray-500 truncate max-w-[5rem]">
+                          {(book as any).seller?.username || 'Unknown'}
+                      </span>
                     </div>
                   </div>
                 </motion.div>

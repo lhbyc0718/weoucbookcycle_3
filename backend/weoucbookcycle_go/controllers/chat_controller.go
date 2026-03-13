@@ -1,11 +1,11 @@
 package controllers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 	"weoucbookcycle_go/config"
 	"weoucbookcycle_go/models"
@@ -15,8 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
-
-var ctx = context.Background()
 
 // ChatController 聊天控制器
 type ChatController struct {
@@ -31,11 +29,10 @@ func NewChatController() *ChatController {
 }
 
 // processMessage 处理消息
-func (cc *ChatController) processMessage(chatID, userID, content string) error {
+func (cc *ChatController) processMessage(chatID, userID, content, msgType string) (*models.Message, error) {
 	// 使用 ChatService 处理消息发送，确保逻辑统一
 	chatService := services.NewChatService()
-	_, err := chatService.SendMessage(chatID, userID, content)
-	return err
+	return chatService.SendMessage(chatID, userID, content, msgType)
 }
 
 // GetChats 获取聊天列表
@@ -76,6 +73,7 @@ func (cc *ChatController) GetChats(c *gin.Context) {
 		Preload("Users").
 		Preload("Users.User").
 		Where("id IN ?", chatIDs).
+		Order("updated_at DESC").
 		Find(&chats).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get chats"})
 		return
@@ -89,7 +87,7 @@ func (cc *ChatController) GetChats(c *gin.Context) {
 
 		if config.RedisClient != nil {
 			unreadKey := "unread:" + userID + ":" + chat.ID
-			unread, err := config.RedisClient.Get(ctx, unreadKey).Int64()
+			unread, err := config.RedisClient.Get(c.Request.Context(), unreadKey).Int64()
 			if err == nil {
 				unreadCount = unread
 			}
@@ -106,10 +104,37 @@ func (cc *ChatController) GetChats(c *gin.Context) {
 			}
 		}
 
-		chatResponses = append(chatResponses, chat.ToChatResponse(unreadCount))
+		// 检查是否有未读交易标记
+		hasUnreadTx := false
+		if cc.redisClient != nil {
+			txKey := "unread_tx:" + userID + ":" + chat.ID
+			exists, _ := cc.redisClient.Exists(c.Request.Context(), txKey).Result()
+			if exists > 0 {
+				hasUnreadTx = true
+			}
+		}
+
+		// 如果最后一条消息是交易，获取该交易的最新状态
+		activeTxStatus := ""
+		activeTxSender := ""
+		if strings.HasPrefix(chat.LastMessage, "{") && strings.Contains(chat.LastMessage, "transaction_id") {
+			var txData struct {
+				TransactionID string `json:"transaction_id"`
+			}
+			if json.Unmarshal([]byte(chat.LastMessage), &txData) == nil && txData.TransactionID != "" {
+				var tx models.Transaction
+				if config.DB.First(&tx, "id = ?", txData.TransactionID).Error == nil {
+					activeTxStatus = tx.Status
+					activeTxSender = tx.BuyerID // 发起者总是买家
+				}
+			}
+		}
+
+		chatResponses = append(chatResponses, chat.ToChatResponse(unreadCount, hasUnreadTx, activeTxStatus, activeTxSender))
 	}
 
-	c.JSON(http.StatusOK, gin.H{"chats": chatResponses})
+	// 直接返回数组而不是包装对象，让前端更容易处理
+	c.JSON(http.StatusOK, chatResponses)
 }
 
 // GetChat 获取聊天详情
@@ -123,7 +148,7 @@ func (cc *ChatController) GetChats(c *gin.Context) {
 // @Success 200 {object} models.Chat
 // @Router /api/v1/chats/{id} [get]
 func (cc *ChatController) GetChat(c *gin.Context) {
-	userID := c.GetString("userID")
+	userID := c.GetString("user_id")
 	chatID := c.Param("id")
 
 	// 检查用户是否有权限访问该聊天
@@ -168,11 +193,11 @@ func (cc *ChatController) GetChat(c *gin.Context) {
 // CreateChat 创建聊天室
 func (cc *ChatController) CreateChat(c *gin.Context) {
 	var req struct {
-		UserID string `json:"user_id" binding:"required"`
+		TargetID string `json:"targetId" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.Error(c, http.StatusBadRequest, "Invalid request body")
+		utils.Error(c, http.StatusBadRequest, "Invalid request body: "+err.Error())
 		return
 	}
 
@@ -184,7 +209,7 @@ func (cc *ChatController) CreateChat(c *gin.Context) {
 
 	// 检查目标用户是否存在
 	var targetUser models.User
-	if err := config.DB.First(&targetUser, "id = ?", req.UserID).Error; err != nil {
+	if err := config.DB.First(&targetUser, "id = ?", req.TargetID).Error; err != nil {
 		utils.NotFound(c, "Target user not found")
 		return
 	}
@@ -207,12 +232,12 @@ func (cc *ChatController) CreateChat(c *gin.Context) {
 		JOIN chat_users cu1 ON c.id = cu1.chat_id AND cu1.user_id = ?
 		JOIN chat_users cu2 ON c.id = cu2.chat_id AND cu2.user_id = ?
 		LIMIT 1
-	`, currentUserID, req.UserID).Scan(&existingChatID).Error
+	`, currentUserID, req.TargetID).Scan(&existingChatID).Error
 
 	if err == nil && existingChatID != "" {
 		// 如果已存在，直接返回该聊天室信息
 		var chat models.Chat
-		config.DB.Preload("Participants").First(&chat, "id = ?", existingChatID)
+		config.DB.Preload("Users").Preload("Users.User").First(&chat, "id = ?", existingChatID)
 		utils.Success(c, chat)
 		return
 	}
@@ -240,7 +265,7 @@ func (cc *ChatController) CreateChat(c *gin.Context) {
 	// 添加参与者
 	participants := []models.ChatUser{
 		{ChatID: chat.ID, UserID: currentUserID, CreatedAt: time.Now()},
-		{ChatID: chat.ID, UserID: req.UserID, CreatedAt: time.Now()},
+		{ChatID: chat.ID, UserID: req.TargetID, CreatedAt: time.Now()},
 	}
 
 	if err := tx.Create(&participants).Error; err != nil {
@@ -252,7 +277,7 @@ func (cc *ChatController) CreateChat(c *gin.Context) {
 	tx.Commit()
 
 	// 重新加载带参与者信息的Chat
-	config.DB.Preload("Participants").First(&chat, "id = ?", chat.ID)
+	config.DB.Preload("Users").Preload("Users.User").First(&chat, "id = ?", chat.ID)
 
 	utils.Success(c, chat)
 }
@@ -290,11 +315,23 @@ func (cc *ChatController) GetMessages(c *gin.Context) {
 	if err == nil {
 		var messages []models.Message
 		if json.Unmarshal([]byte(cached), &messages) == nil {
-			c.JSON(http.StatusOK, gin.H{
-				"messages": messages,
-				"page":     page,
-				"limit":    limit,
-			})
+			// 标记消息为已读（异步）
+			go func() {
+				config.DB.Model(&models.Message{}).
+					Where("chat_id = ? AND sender_id != ?", chatID, userID).
+					Update("is_read", true)
+				cc.redisClient.Del(ctx, "unread:"+userID+":"+chatID)
+			}()
+
+			// 修正本地图片URL前缀
+			for i := range messages {
+				if messages[i].Type == "image" && strings.HasPrefix(messages[i].Content, "/") {
+					messages[i].Content = config.GetAPIBase() + messages[i].Content
+				}
+			}
+
+			// 直接返回消息数组
+			c.JSON(http.StatusOK, messages)
 			return
 		}
 	}
@@ -308,17 +345,12 @@ func (cc *ChatController) GetMessages(c *gin.Context) {
 	if err := config.DB.
 		Preload("Sender").
 		Where("chat_id = ?", chatID).
-		Order("created_at DESC").
+		Order("created_at ASC").
 		Limit(limit).
 		Offset(offset).
 		Find(&messages).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get messages"})
 		return
-	}
-
-	// 反转消息顺序（最新的在最前面）
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
 	}
 
 	// 标记消息为已读
@@ -337,12 +369,14 @@ func (cc *ChatController) GetMessages(c *gin.Context) {
 		cc.redisClient.Set(ctx, cacheKey, data, time.Minute*5)
 	}()
 
-	c.JSON(http.StatusOK, gin.H{
-		"messages": messages,
-		"total":    total,
-		"page":     page,
-		"limit":    limit,
-	})
+	// 对本地图片URL进行修正
+	for i := range messages {
+		if messages[i].Type == "image" && strings.HasPrefix(messages[i].Content, "/") {
+			messages[i].Content = config.GetAPIBase() + messages[i].Content
+		}
+	}
+	// 直接返回消息数组
+	c.JSON(http.StatusOK, messages)
 }
 
 // SendMessage 发送消息
@@ -352,7 +386,7 @@ func (cc *ChatController) GetMessages(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param id path string true "聊天ID"
-// @Param request body map[string]interface{} true "消息内容" example='{"content":"Hello"}'
+// @Param request body map[string]interface{} true "消息内容" example='{"content":"Hello", "type":"text"}'
 // @Security Bearer
 // @Success 201 {object} models.Message
 // @Router /api/v1/chats/{id}/messages [post]
@@ -362,10 +396,15 @@ func (cc *ChatController) SendMessage(c *gin.Context) {
 
 	var req struct {
 		Content string `json:"content" binding:"required,max=1000"`
+		Type    string `json:"type"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	if req.Type == "" {
+		req.Type = "text"
 	}
 
 	// 检查权限
@@ -375,12 +414,14 @@ func (cc *ChatController) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// 直接处理消息（不再使用内部队列，依靠Go的并发能力）
-	go func() {
-		cc.processMessage(chatID, userID, req.Content)
-	}()
+	// 直接处理消息
+	message, err := cc.processMessage(chatID, userID, req.Content, req.Type)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Message sent successfully"})
+	c.JSON(http.StatusCreated, message)
 }
 
 // GetUnreadCount 获取未读消息数
@@ -394,28 +435,21 @@ func (cc *ChatController) SendMessage(c *gin.Context) {
 // @Router /api/v1/chats/unread [get]
 func (cc *ChatController) GetUnreadCount(c *gin.Context) {
 	userID := c.GetString("user_id")
-
-	// 获取所有未读key
-	pattern := "unread:" + userID + ":*"
-	keys, _ := cc.redisClient.Keys(ctx, pattern).Result()
-
-	totalUnread := 0
-	chatUnread := make(map[string]int64)
-
-	for _, key := range keys {
-		// 提取chat_id
-		chatID := key[len("unread:"+userID+":"):]
-
-		// 获取未读数
-		count, _ := cc.redisClient.Get(ctx, key).Int64()
-		totalUnread += int(count)
-		chatUnread[chatID] = count
+	if userID == "" {
+		utils.Unauthorized(c, "")
+		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"total_unread": totalUnread,
-		"chat_unread":  chatUnread,
-	})
+	// 使用服务层实现，统一错误处理与 Redis 访问
+	chatSvc := services.NewChatService()
+	chatUnread, total, err := chatSvc.GetUnreadCount(userID)
+	if err != nil {
+		// 如果 Redis 不可用或发生错误，返回 0 而不是失败，避免前端误显示
+		c.JSON(http.StatusOK, gin.H{"total_unread": 0, "chat_unread": map[string]int64{}})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"total_unread": total, "chat_unread": chatUnread})
 }
 
 // GetOnlineUsers 获取在线用户列表
@@ -504,4 +538,18 @@ func (cc *ChatController) DeleteChat(c *gin.Context) {
 		"code":    20000,
 		"message": "Chat deleted successfully",
 	})
+}
+
+// ClearMessagesHandler 清空聊天记录（删除消息但保留会话条）
+func (cc *ChatController) ClearMessagesHandler(c *gin.Context) {
+	userID := c.GetString("user_id")
+	chatID := c.Param("id")
+
+	chatService := services.NewChatService()
+	if err := chatService.ClearMessages(chatID, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 50000, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 20000, "message": "Chat messages cleared"})
 }

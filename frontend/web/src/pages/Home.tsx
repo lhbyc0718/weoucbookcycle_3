@@ -21,6 +21,25 @@ export default function Home() {
   const [hotBooks, setHotBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const processBooks = (data: any) => {
+    const list = Array.isArray(data) ? data : (data as any).books || (data as any).data || [];
+    return list.map((b: any) => {
+        let cover = b.cover;
+        if (!cover || cover === '') {
+           if (b.images) {
+               try {
+                   const imgs = typeof b.images === 'string' ? JSON.parse(b.images) : b.images;
+                   if (Array.isArray(imgs) && imgs.length > 0) {
+                       cover = imgs[0];
+                   }
+               } catch (e) {}
+           }
+        }
+        if (!cover) cover = '/images/default_book.jpg';
+        return { ...b, cover };
+    });
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -29,8 +48,8 @@ export default function Home() {
           bookApi.getHotBooks()
         ]);
         
-        setBooks(Array.isArray(recentData) ? recentData : (recentData as any).books || (recentData as any).data || []);
-        setHotBooks(Array.isArray(hotData) ? hotData : (hotData as any).books || (hotData as any).data || []);
+        setBooks(processBooks(recentData));
+        setHotBooks(processBooks(hotData));
       } catch (error) {
         console.error('Failed to load home data:', error);
       } finally {
@@ -203,21 +222,32 @@ export default function Home() {
                     className="bg-white rounded-xl shadow-sm hover:shadow-md border border-gray-100 overflow-hidden cursor-pointer transition-all group"
                     onClick={() => navigate(`/books/${book.id}`)}
                   >
-                    <div className="aspect-[3/4] relative overflow-hidden">
-                      <img src={book.cover} alt={book.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" loading="lazy" />
+                    <div className="aspect-[3/4] relative overflow-hidden bg-gray-100">
+                      <img 
+                          src={book.cover} 
+                          alt={book.title} 
+                          className="w-full h-full object-cover transition-transform group-hover:scale-105" 
+                          loading="lazy" 
+                          onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (!target.src.includes('default_book.jpg')) {
+                                  target.src = '/images/default_book.jpg';
+                              }
+                          }}
+                      />
                       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
-                        <span className="text-white text-xs font-medium">{book.condition}</span>
+                        <span className="text-white text-xs font-medium bg-black/30 px-2 py-0.5 rounded backdrop-blur-sm">{book.condition}</span>
                       </div>
                     </div>
                     <div className="p-3">
-                      <h4 className="font-medium text-sm text-gray-900 line-clamp-2 h-10 leading-5 mb-1 group-hover:text-blue-600 transition-colors">{book.title}</h4>
-                      <div className="flex justify-between items-center">
-                        <span className="text-red-500 font-bold">¥{book.price}</span>
+                      <h4 className="font-medium text-sm text-gray-900 line-clamp-2 h-10 leading-5 mb-1 group-hover:text-blue-600 transition-colors" title={book.title}>{book.title}</h4>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-red-600 font-bold text-base">¥{book.price}</span>
                         <div className="flex items-center gap-1">
-                          <div className="w-4 h-4 rounded-full bg-gray-200 overflow-hidden">
-                             <div className="w-full h-full bg-blue-100 flex items-center justify-center text-[8px] text-blue-600 font-bold">{book.sellerId?.[0]?.toUpperCase()}</div>
+                          <div className="w-4 h-4 rounded-full bg-gray-100 overflow-hidden flex-shrink-0">
+                             <div className="w-full h-full bg-blue-100 flex items-center justify-center text-[8px] text-blue-600 font-bold">{(book as any).seller?.username?.[0]?.toUpperCase() || book.sellerId?.[0]?.toUpperCase() || 'S'}</div>
                           </div>
-                          <span className="text-xs text-gray-500 truncate max-w-[4rem]">{book.sellerId}</span>
+                          <span className="text-xs text-gray-500 truncate max-w-[4rem]">{(book as any).seller?.username || book.sellerId}</span>
                         </div>
                       </div>
                     </div>

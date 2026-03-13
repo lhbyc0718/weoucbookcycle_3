@@ -29,7 +29,7 @@ func SetupTestRouter() *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	// r.Use(middleware.Logger()) // Disable logger for cleaner test output
-	
+
 	routes.SetupRoutes(r)
 	return r
 }
@@ -41,7 +41,7 @@ func init() {
 		log.Println("⚠️  No .env file found in ../../, trying default locations")
 		godotenv.Load()
 	}
-	
+
 	// Ensure JWT_SECRET is set for tests
 	if os.Getenv("JWT_SECRET") == "" {
 		os.Setenv("JWT_SECRET", "test_secret_key_for_e2e")
@@ -59,10 +59,10 @@ func CreateTestUser(r *gin.Engine, username string) (string, string, error) {
 	user := models.User{
 		Username:     username,
 		Email:        username + "@example.com",
-		WeChatOpenID: "test_openid_" + username,
+		WeChatOpenID: func() *string { s := "test_openid_" + username; return &s }(),
 		Avatar:       "http://example.com/avatar.jpg",
 	}
-	
+
 	// 检查是否存在
 	var existing models.User
 	if err := config.DB.Where("username = ?", username).First(&existing).Error; err == nil {
@@ -128,10 +128,10 @@ func TestWebSocketAuthAndMessageFlow(t *testing.T) {
 	req, _ := http.NewRequest("POST", server.URL+"/api/chats", strings.NewReader(createChatBody))
 	req.Header.Set("Authorization", "Bearer "+token1)
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	resp, err := client.Do(req)
 	assert.NoError(t, err)
-	
+
 	if resp.StatusCode != http.StatusOK {
 		var errResp map[string]interface{}
 		json.NewDecoder(resp.Body).Decode(&errResp)
@@ -177,10 +177,10 @@ func TestWebSocketAuthAndMessageFlow(t *testing.T) {
 				log.Printf("User 2 WS Error: %v", err)
 				return
 			}
-			
+
 			var msgData map[string]interface{}
 			json.Unmarshal(message, &msgData)
-			
+
 			// 检查是否是刚发的消息
 			if msgData["type"] == "message" {
 				if content, ok := msgData["content"].(string); ok && content == msgContent {

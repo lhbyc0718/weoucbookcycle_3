@@ -155,7 +155,9 @@ func (fu *FileUploader) UploadFile(c *gin.Context, fieldName string) (*UploadRes
 	}
 
 	// 构建结果
-	result.OriginalURL = fmt.Sprintf("/uploads/%s", fileName)
+	// 为了前端能够直接访问，使用 API_BASE 前缀（通常是后端地址）
+	apiBase := config.GetAPIBase()
+	result.OriginalURL = fmt.Sprintf("%s/uploads/%s", strings.TrimRight(apiBase, "/"), fileName)
 
 	// 异步缓存文件信息到Redis
 	if fu.config.UseRedisCache && config.RedisClient != nil {

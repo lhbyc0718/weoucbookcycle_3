@@ -29,8 +29,8 @@ interface ChatStore {
   setSocketConnected: (connected: boolean) => void;
   
   updateChatMessage: (chatId: string, message: Message) => void;
-  incrementUnreadCount: (chatId: string) => void;
-  clearUnreadCount: (chatId: string) => void;
+  incrementUnreadCount: () => void;
+  clearUnreadCount: () => void;
 }
 
 export const useChatStore = create<ChatStore>((set) => ({
@@ -66,47 +66,6 @@ export const useChatStore = create<ChatStore>((set) => ({
     return { chats: updatedChats };
   }),
 
-  incrementUnreadCount: (chatId) => set((state) => {
-    // Update global unread count
-    const newUnreadCount = state.unreadCount + 1;
-    
-    // Update specific chat unread count
-    const updatedChats = state.chats.map((c) => {
-      if (c.id === chatId) {
-        return {
-          ...c,
-          unread_count: (c.unread_count || 0) + 1,
-        };
-      }
-      return c;
-    });
-
-    return { 
-      unreadCount: newUnreadCount,
-      chats: updatedChats
-    };
-  }),
-
-  clearUnreadCount: (chatId) => set((state) => {
-    const chat = state.chats.find(c => c.id === chatId);
-    if (!chat) return {};
-
-    const count = chat.unread_count || 0;
-    const newGlobalCount = Math.max(0, state.unreadCount - count);
-
-    const updatedChats = state.chats.map((c) => {
-      if (c.id === chatId) {
-        return {
-          ...c,
-          unread_count: 0,
-        };
-      }
-      return c;
-    });
-
-    return {
-      unreadCount: newGlobalCount,
-      chats: updatedChats
-    };
-  }),
+  incrementUnreadCount: () => set((state) => ({ unreadCount: state.unreadCount + 1 })),
+  clearUnreadCount: () => set((state) => ({ unreadCount: Math.max(0, state.unreadCount - 1) })),
 }));

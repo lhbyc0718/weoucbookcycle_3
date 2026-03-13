@@ -34,23 +34,29 @@ type ChatUser struct {
 
 // ChatResponse 聊天响应结构（包含未读数）
 type ChatResponse struct {
-	ID          string     `json:"id"`
-	LastMessage string     `json:"last_message,omitempty"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	UnreadCount int64      `json:"unread_count"` // 添加未读数字段
-	Users       []ChatUser `json:"users,omitempty"`
-	Messages    []Message  `json:"messages,omitempty"`
+	ID                   string     `json:"id"`
+	LastMessage          string     `json:"last_message,omitempty"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	UnreadCount             int64      `json:"unread_count"` // 添加未读数字段
+	Users                   []ChatUser `json:"users,omitempty"`
+	Messages                []Message  `json:"messages,omitempty"`
+	HasUnreadTransaction    bool       `json:"has_unread_transaction"`     // 是否有未读交易标记
+	ActiveTransactionStatus string     `json:"active_transaction_status"` // 活跃交易的状态
+	ActiveTransactionSender string     `json:"active_transaction_sender"` // 活跃交易的发起者ID
 }
 
 // ToChatResponse 将Chat转换为ChatResponse
-func (c *Chat) ToChatResponse(unreadCount int64) ChatResponse {
+func (c *Chat) ToChatResponse(unreadCount int64, hasUnreadTx bool, txStatus, txSender string) ChatResponse {
 	return ChatResponse{
-		ID:          c.ID,
-		LastMessage: c.LastMessage,
-		UpdatedAt:   c.UpdatedAt,
-		UnreadCount: unreadCount,
-		Users:       c.Users,
-		Messages:    c.Messages,
+		ID:                      c.ID,
+		LastMessage:             c.LastMessage,
+		UpdatedAt:               c.UpdatedAt,
+		UnreadCount:             unreadCount,
+		Users:                   c.Users,
+		Messages:                c.Messages,
+		HasUnreadTransaction:    hasUnreadTx,
+		ActiveTransactionStatus: txStatus,
+		ActiveTransactionSender: txSender,
 	}
 }
 

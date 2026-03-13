@@ -12,6 +12,7 @@ type Message struct {
 	ChatID    string         `gorm:"type:varchar(36);index:idx_chat_created;not null" json:"chat_id"`
 	SenderID  string         `gorm:"type:varchar(36);index;not null" json:"sender_id"`
 	Content   string         `gorm:"type:text;not null" json:"content"`
+	Type      string         `gorm:"type:varchar(20);default:'text'" json:"type"` // text, image, emoji
 	IsRead    bool           `gorm:"default:false" json:"is_read"`
 	CreatedAt time.Time      `gorm:"index:idx_chat_created" json:"created_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

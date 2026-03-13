@@ -7,6 +7,8 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+
+	elasticsearch "github.com/elastic/go-elasticsearch/v8"
 )
 
 // GetEnv 获取环境变量，如果不存在则返回默认值
@@ -68,15 +70,55 @@ var StorageClient interface{} // will hold *minio.Client
 
 // GetStorageConfig reads storage settings from environment
 func GetStorageConfig() *StorageConfig {
+	// Support both generic STORAGE_* env vars and OSS-specific env vars for compatibility.
+	// OSS_* variables are treated as fallbacks if STORAGE_* are not provided.
+	provider := GetEnv("STORAGE_PROVIDER", "")
+	if provider == "" {
+		provider = GetEnv("OSS_PROVIDER", "oss") // default to "oss" when using OSS vars
+	}
+
+	endpoint := GetEnv("STORAGE_ENDPOINT", "")
+	if endpoint == "" {
+		endpoint = GetEnv("OSS_ENDPOINT", "")
+	}
+
+	access := GetEnv("STORAGE_ACCESS_KEY", "")
+	if access == "" {
+		access = GetEnv("OSS_ACCESS_KEY_ID", "")
+	}
+
+	secret := GetEnv("STORAGE_SECRET_KEY", "")
+	if secret == "" {
+		secret = GetEnv("OSS_ACCESS_KEY_SECRET", "")
+	}
+
+	bucket := GetEnv("STORAGE_BUCKET", "")
+	if bucket == "" {
+		bucket = GetEnv("OSS_BUCKET", "")
+	}
+
+	region := GetEnv("STORAGE_REGION", "")
+	if region == "" {
+		region = GetEnv("OSS_REGION", "")
+	}
+
+	useSSL := GetEnvBool("STORAGE_USE_SSL", true)
+	// 不提供 OSS_USE_SSL，默认使用 STORAGE_USE_SSL
+
+	publicURL := GetEnv("STORAGE_PUBLIC_URL", "")
+	if publicURL == "" {
+		publicURL = GetEnv("OSS_DIRECT_ACCESS_PREFIX", "")
+	}
+
 	return &StorageConfig{
-		Provider:  GetEnv("STORAGE_PROVIDER", ""),
-		Endpoint:  GetEnv("STORAGE_ENDPOINT", ""),
-		AccessKey: GetEnv("STORAGE_ACCESS_KEY", ""),
-		SecretKey: GetEnv("STORAGE_SECRET_KEY", ""),
-		Bucket:    GetEnv("STORAGE_BUCKET", ""),
-		Region:    GetEnv("STORAGE_REGION", ""),
-		UseSSL:    GetEnvBool("STORAGE_USE_SSL", true),
-		PublicURL: GetEnv("STORAGE_PUBLIC_URL", ""),
+		Provider:  provider,
+		Endpoint:  endpoint,
+		AccessKey: access,
+		SecretKey: secret,
+		Bucket:    bucket,
+		Region:    region,
+		UseSSL:    useSSL,
+		PublicURL: publicURL,
 	}
 }
 
@@ -109,4 +151,35 @@ func InitializeStorage() error {
 		}
 	}
 	return nil
+}
+
+// ElasticClient is the global Elasticsearch client
+var ElasticClient *elasticsearch.Client
+
+// InitializeElastic initializes the Elasticsearch client
+func InitializeElastic() error {
+	cfg := elasticsearch.Config{
+		Addresses: []string{
+			GetEnv("ELASTICSEARCH_URL", "http://localhost:9200"),
+		},
+	}
+
+	es, err := elasticsearch.NewClient(cfg)
+	if err != nil {
+		return err
+	}
+
+	// Check connection
+	_, err = es.Info()
+	if err != nil {
+		return err
+	}
+
+	ElasticClient = es
+	return nil
+}
+
+// GetElasticClient returns the global Elasticsearch client
+func GetElasticClient() *elasticsearch.Client {
+	return ElasticClient
 }

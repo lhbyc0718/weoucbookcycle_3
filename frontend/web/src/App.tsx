@@ -6,21 +6,31 @@ import BookDetail from './pages/BookDetail';
 import Messages from './pages/Messages';
 import ChatDetail from './pages/ChatDetail';
 import UserProfile from './pages/UserProfile';
+import OtherUserProfile from './pages/OtherUserProfile';
 import AdminDashboard from './pages/AdminDashboard';
+import AdminAddresses from './pages/AdminAddresses';
+import AdminUsers from './pages/AdminUsers';
+import AdminBooks from './pages/AdminBooks';
+import AdminTransactions from './pages/AdminTransactions';
+import AdminReports from './pages/AdminReports';
 import Post from './pages/Post';
 import Login from './pages/Login';
+import VerifyEmail from './pages/VerifyEmail';
+import ResetPassword from './pages/ResetPassword';
 import PrivateRoute from './components/PrivateRoute';
 import './index.css';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
+
 import { wsService } from './services/websocket';
 import { useChatStore } from './store/chatStore';
 import { chatApi } from './services/api';
-import LoginModal from './components/LoginModal';
+import MyTransactions from './pages/MyTransactions';
+import TransactionDetail from './pages/TransactionDetail';
+import Notifications from './pages/Notifications';
 
 export default function App() {
   const { incrementUnreadCount, setUnreadCount } = useChatStore();
-  const [showLoginModal, setShowLoginModal] = useState(false);
 
   useEffect(() => {
     // Initialize WebSocket connection if logged in
@@ -28,10 +38,6 @@ export default function App() {
     if (token) {
         wsService.connect();
     }
-
-    // Listen for auth errors
-    const handleAuthError = () => setShowLoginModal(true);
-    window.addEventListener('auth:unauthorized', handleAuthError);
 
     // Listen for login event (e.g. from Login page)
     const handleLogin = () => {
@@ -42,15 +48,22 @@ export default function App() {
 
     // Subscribe to messages for global unread count
     const handleMessage = (data: any) => {
-      // If we are not in the chat where the message belongs, increment unread
-      // Note: Active chat checking should be done, but for now simple increment
-      // Ideally we check if we are on the chat page for that chatID
+      // 获取当前用户ID
+      const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+      const currentUserId = userInfo.id;
+
+      // 如果是自己发送的消息，不增加未读数
+      if (data.sender_id === currentUserId || data.from === currentUserId) {
+        return;
+      }
+
+      // 如果不在当前会话页面，则增加未读数
       const currentPath = window.location.pathname;
       if (!currentPath.includes(`/chats/${data.chat_id}`)) {
-         incrementUnreadCount(data.chat_id);
+        incrementUnreadCount();
       }
     };
-    
+
     wsService.subscribe('message', handleMessage);
 
     // Fetch initial unread count
@@ -71,7 +84,6 @@ export default function App() {
     }
 
     return () => {
-      window.removeEventListener('auth:unauthorized', handleAuthError);
       window.removeEventListener('auth:login', handleLogin);
       wsService.unsubscribe('message', handleMessage);
       wsService.disconnect();
@@ -81,21 +93,18 @@ export default function App() {
   return (
     <BrowserRouter>
       <Toaster position="top-center" reverseOrder={false} />
-      <LoginModal 
-        isOpen={showLoginModal} 
-        onClose={() => setShowLoginModal(false)}
-        onSuccess={() => {
-            setShowLoginModal(false);
-            wsService.connect(); // Reconnect socket after login
-            window.location.reload(); // Simple way to refresh state
-        }} 
-      />
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Home />} />
           <Route path="market" element={<Market />} />
-          <Route path="books/:id" element={<BookDetail />} />
+          <Route path="books/:id" element={
+            <PrivateRoute>
+              <BookDetail />
+            </PrivateRoute>
+          } />
           
           {/* Protected Routes */}
           <Route path="messages" element={
@@ -113,9 +122,50 @@ export default function App() {
               <UserProfile />
             </PrivateRoute>
           } />
+          <Route path="transactions" element={
+            <PrivateRoute>
+              <MyTransactions />
+            </PrivateRoute>
+          } />
+          <Route path="transactions/:id" element={
+            <PrivateRoute>
+              <TransactionDetail />
+            </PrivateRoute>
+          } />
+          <Route path="notifications" element={
+            <PrivateRoute>
+              <Notifications />
+            </PrivateRoute>
+          } />
+          <Route path="users/:id" element={<OtherUserProfile />} />
           <Route path="admin" element={
             <PrivateRoute>
               <AdminDashboard />
+            </PrivateRoute>
+          } />
+          <Route path="admin/users" element={
+            <PrivateRoute>
+              <AdminUsers />
+            </PrivateRoute>
+          } />
+          <Route path="admin/books" element={
+            <PrivateRoute>
+              <AdminBooks />
+            </PrivateRoute>
+          } />
+          <Route path="admin/transactions" element={
+            <PrivateRoute>
+              <AdminTransactions />
+            </PrivateRoute>
+          } />
+          <Route path="admin/reports" element={
+            <PrivateRoute>
+              <AdminReports />
+            </PrivateRoute>
+          } />
+          <Route path="admin/addresses" element={
+            <PrivateRoute>
+              <AdminAddresses />
             </PrivateRoute>
           } />
           <Route path="post" element={

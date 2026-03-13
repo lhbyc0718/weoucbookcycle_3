@@ -15,7 +15,6 @@ export default defineConfig({
 				manualChunks: {
 					'react-vendor': ['react', 'react-dom', 'react-router-dom'],
 					'ui-vendor': ['framer-motion', 'react-icons', 'react-hot-toast'],
-					'chart-vendor': ['recharts'],
 				}
 			}
 		}
@@ -26,7 +25,8 @@ export default defineConfig({
     }
   },
   server: {
-    port: 3000,
+    port: 5173,
+    host: true, // Allow access via LAN IP
     proxy: {
       '/api': {
         target: 'http://localhost:8080',

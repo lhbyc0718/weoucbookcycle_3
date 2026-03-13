@@ -69,9 +69,11 @@ type Client struct {
 
 // WSMessage WebSocket消息结构
 type WSMessage struct {
-	Type      string      `json:"type"` // 消息类型: message, typing, read, ping, pong
+	ID        string      `json:"id,omitempty"` // 消息ID
+	Type      string      `json:"type"`         // 消息类型: message, typing, read, ping, pong
 	ChatID    string      `json:"chat_id,omitempty"`
 	Content   string      `json:"content,omitempty"`
+	MsgType   string      `json:"msg_type,omitempty"`
 	Data      interface{} `json:"data,omitempty"`
 	Timestamp int64       `json:"timestamp"`
 	From      string      `json:"from,omitempty"`
@@ -86,9 +88,10 @@ type ChatRoom struct {
 
 // BroadcastMessage 广播消息
 type BroadcastMessage struct {
-	Type   string      `json:"type"`
-	ChatID string      `json:"chat_id"`
-	Data   interface{} `json:"data"`
+	Type        string      `json:"type"`
+	ChatID      string      `json:"chat_id"`
+	Data        interface{} `json:"data"`
+	ReceiverIDs []string    `json:"receiver_ids,omitempty"` // 指定接收者列表
 }
 
 // InitWebSocket 初始化WebSocket服务
@@ -107,9 +110,12 @@ func InitWebSocket() error {
 
 // HandleConnection 处理WebSocket连接
 func HandleConnection(c *gin.Context) {
+	log.Println("Handling WebSocket connection attempt...")
+
 	// 限制总连接数 (简单实现，生产环境可用 Redis 计数)
 	count, _ := GetOnlineUserCount()
 	if count >= 10000 {
+		log.Println("Connection rejected: Server busy")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server is busy"})
 		return
 	}
@@ -128,6 +134,7 @@ func HandleConnection(c *gin.Context) {
 		jwtService := config.GetJWTService()
 		claims, err := jwtService.ValidateToken(token)
 		if err != nil {
+			log.Printf("Connection rejected: Invalid token: %v", err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			return
 		}
@@ -135,14 +142,18 @@ func HandleConnection(c *gin.Context) {
 	} else {
 		// 兼容旧逻辑（如果允许非认证连接），或直接报错
 		// 这里为了安全，强制要求token
+		log.Println("Connection rejected: No token provided")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Token is required"})
 		return
 	}
 
 	if userID == "" {
+		log.Println("Connection rejected: UserID not found in token")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID not found in token"})
 		return
 	}
+
+	log.Printf("Upgrading connection for user: %s", userID)
 
 	// 升级HTTP连接为WebSocket连接
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -150,6 +161,8 @@ func HandleConnection(c *gin.Context) {
 		log.Printf("Failed to upgrade connection: %v", err)
 		return
 	}
+
+	log.Printf("WebSocket connection established for user: %s", userID)
 
 	// 注册客户端
 	client := &Client{
@@ -280,7 +293,9 @@ func (c *Client) writePump() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer func() {
 		ticker.Stop()
-		c.Connection.Close()
+		if c.Connection != nil {
+			c.Connection.Close()
+		}
 	}()
 
 	for {
@@ -292,6 +307,9 @@ func (c *Client) writePump() {
 				return
 			}
 
+			if c.Connection == nil {
+				return
+			}
 			c.Connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.Connection.WriteJSON(message); err != nil {
 				return
@@ -299,6 +317,9 @@ func (c *Client) writePump() {
 
 		case <-ticker.C:
 			// 发送心跳
+			if c.Connection == nil {
+				return
+			}
 			c.Connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.Connection.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
@@ -348,27 +369,28 @@ func (c *Client) handleChatMessage(message *WSMessage) {
 		return
 	}
 
-	// 广播消息到聊天室
+	// 构造广播消息结构
 	broadcastMessage := &BroadcastMessage{
 		Type:   "message",
 		ChatID: message.ChatID,
 		Data:   message,
 	}
 
-	// 放入广播队列
-	select {
-	case broadcastQueue <- broadcastMessage:
-		// 成功放入队列
-	default:
-		log.Printf("Broadcast queue is full, dropping message")
-	}
-
-	// 同时发布到Redis（用于多服务器同步）
+	// 如果Redis已配置，则仅通过Redis发布，
+	// 本地订阅会把它放入广播队列，避免双重发送。
 	if config.RedisClient != nil {
 		go func() {
 			data, _ := json.Marshal(broadcastMessage)
 			config.RedisClient.Publish(redisCtx, "chat:broadcast", data)
 		}()
+	} else {
+		// Redis 不可用则退回本地队列
+		select {
+		case broadcastQueue <- broadcastMessage:
+			// 成功放入
+		default:
+			log.Printf("Broadcast queue is full, dropping message")
+		}
 	}
 }
 
@@ -476,6 +498,69 @@ func startBroadcastWorker() {
 
 // processBroadcast 处理单个广播消息
 func processBroadcast(broadcast *BroadcastMessage) {
+	// 优先使用接收者列表进行推送
+	if len(broadcast.ReceiverIDs) > 0 {
+		var wg sync.WaitGroup
+
+		for _, receiverID := range broadcast.ReceiverIDs {
+			clientsMutex.RLock()
+			client, ok := clients[receiverID]
+			clientsMutex.RUnlock()
+
+			if ok {
+				wg.Add(1)
+				go func(c *Client, data interface{}) {
+					defer wg.Done()
+					// 构造消息逻辑复用
+					var msg *WSMessage
+					if wsMsg, ok := data.(WSMessage); ok {
+						msg = &wsMsg
+					} else if wsMsgPtr, ok := data.(*WSMessage); ok {
+						msg = wsMsgPtr
+					} else if mapData, ok := data.(map[string]interface{}); ok {
+						content, _ := mapData["content"].(string)
+						msgType, _ := mapData["msg_type"].(string)
+						senderID, _ := mapData["sender_id"].(string)
+
+						// 提取ID
+						var idStr string
+						if idVal, ok := mapData["id"]; ok {
+							idStr = fmt.Sprintf("%v", idVal)
+						}
+
+						msg = &WSMessage{
+							ID:        idStr,
+							Type:      broadcast.Type,
+							ChatID:    broadcast.ChatID,
+							Content:   content,
+							MsgType:   msgType,
+							From:      senderID,
+							Data:      data,
+							Timestamp: time.Now().Unix(),
+						}
+					} else {
+						msg = &WSMessage{
+							Type:      broadcast.Type,
+							ChatID:    broadcast.ChatID,
+							Data:      data,
+							Timestamp: time.Now().Unix(),
+						}
+					}
+
+					select {
+					case c.Send <- msg:
+					default:
+						log.Printf("Client %s send queue is full, closing connection", c.ID)
+						c.Connection.Close()
+					}
+				}(client, broadcast.Data)
+			}
+		}
+		wg.Wait()
+		return
+	}
+
+	// 降级到 ChatRoom 逻辑 (如果 ReceiverIDs 为空)
 	chatRoom, exists := getChatRoom(broadcast.ChatID)
 	if !exists {
 		return
@@ -496,6 +581,27 @@ func processBroadcast(broadcast *BroadcastMessage) {
 				msg = &wsMsg
 			} else if wsMsgPtr, ok := data.(*WSMessage); ok {
 				msg = wsMsgPtr
+			} else if mapData, ok := data.(map[string]interface{}); ok {
+				content, _ := mapData["content"].(string)
+				msgType, _ := mapData["msg_type"].(string)
+				senderID, _ := mapData["sender_id"].(string)
+
+				// 提取ID
+				var idStr string
+				if idVal, ok := mapData["id"]; ok {
+					idStr = fmt.Sprintf("%v", idVal)
+				}
+
+				msg = &WSMessage{
+					ID:        idStr,
+					Type:      broadcast.Type,
+					ChatID:    broadcast.ChatID,
+					Content:   content,
+					MsgType:   msgType,
+					From:      senderID,
+					Data:      data,
+					Timestamp: time.Now().Unix(),
+				}
 			} else {
 				msg = &WSMessage{
 					Type:      broadcast.Type,
@@ -547,22 +653,117 @@ func getChatRoom(chatID string) (*ChatRoom, bool) {
 	return room, exists
 }
 
+// IsUserInChatRoom 检查用户是否在聊天室内（未读数应该只在用户不在聊天室时增加）
+func IsUserInChatRoom(userID, chatID string) bool {
+	room, exists := getChatRoom(chatID)
+	if !exists {
+		return false
+	}
+
+	room.mu.RLock()
+	defer room.mu.RUnlock()
+	_, ok := room.Clients[userID]
+	return ok
+}
+
 // subscribeToRedis 订阅Redis频道（多服务器同步）
 func subscribeToRedis() {
-	pubsub := config.RedisClient.Subscribe(redisCtx, "chat:broadcast")
+	pubsub := config.RedisClient.Subscribe(redisCtx, "chat:broadcast", "chat:message", "chat:notification", "book:created")
 	redisPubSub = pubsub
 
 	ch := pubsub.Channel()
 	for msg := range ch {
-		var broadcast BroadcastMessage
-		if err := json.Unmarshal([]byte(msg.Payload), &broadcast); err != nil {
-			continue
-		}
+		// 处理不同频道的消息
+		switch msg.Channel {
+		case "chat:message":
+			// 来自HTTP API的消息，需要即时推送给聊天室用户
+			var data map[string]interface{}
+			if err := json.Unmarshal([]byte(msg.Payload), &data); err != nil {
+				log.Printf("Failed to unmarshal Redis message: %v", err)
+				continue
+			}
 
-		// 将Redis消息放入本地广播队列
-		select {
-		case broadcastQueue <- &broadcast:
-		default:
+			// 提取聊天ID和接收者列表
+			chatID, _ := data["chat_id"].(string)
+			if chatID == "" {
+				continue
+			}
+
+			// 构造广播消息
+			broadcast := &BroadcastMessage{
+				Type:   "message",
+				ChatID: chatID,
+				Data:   data,
+			}
+
+			// 如果包含接收者ID列表，使用它
+			if receiverIDs, ok := data["receiver_ids"].([]interface{}); ok {
+				for _, id := range receiverIDs {
+					if idStr, ok := id.(string); ok {
+						broadcast.ReceiverIDs = append(broadcast.ReceiverIDs, idStr)
+					}
+				}
+			}
+
+			// 放入广播队列
+			select {
+			case broadcastQueue <- broadcast:
+			default:
+				log.Println("Broadcast queue is full")
+			}
+
+		case "chat:broadcast":
+			var broadcast BroadcastMessage
+			if err := json.Unmarshal([]byte(msg.Payload), &broadcast); err != nil {
+				continue
+			}
+
+			select {
+			case broadcastQueue <- &broadcast:
+			default:
+			}
+
+		case "chat:notification":
+			// 处理来自通知系统的广播，期望 payload 包含 receiver_ids 或 data
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(msg.Payload), &payload); err != nil {
+				continue
+			}
+
+			broadcast := &BroadcastMessage{
+				Type: "notification",
+				Data: payload["data"],
+			}
+
+			// 如果包含接收者ID数组，则填充 ReceiverIDs
+			if rids, ok := payload["receiver_ids"].([]interface{}); ok {
+				for _, id := range rids {
+					if s, ok := id.(string); ok {
+						broadcast.ReceiverIDs = append(broadcast.ReceiverIDs, s)
+					}
+				}
+			}
+
+			select {
+			case broadcastQueue <- broadcast:
+			default:
+			}
+		case "book:created":
+			var payload map[string]interface{}
+			if err := json.Unmarshal([]byte(msg.Payload), &payload); err != nil {
+				continue
+			}
+
+			// 向所有在线客户端推送书籍创建事件
+			clientsMutex.RLock()
+			for _, client := range clients {
+				select {
+				case client.Send <- &WSMessage{Type: "book_created", Data: payload, Timestamp: time.Now().Unix()}:
+				default:
+					// 如果某个客户端发送队列已满则忽略
+				}
+			}
+			clientsMutex.RUnlock()
 		}
 	}
 }
@@ -599,6 +800,7 @@ func (c *Client) sendUnreadMessages() {
 			Type:      "message",
 			ChatID:    msg.ChatID,
 			Content:   msg.Content,
+			MsgType:   msg.Type,
 			Timestamp: msg.CreatedAt.Unix(),
 			From:      msg.SenderID,
 			Data:      msg,

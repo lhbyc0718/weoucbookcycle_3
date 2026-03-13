@@ -1,168 +1,143 @@
-import { toast } from 'react-hot-toast';
-
-type MessageHandler = (data: any) => void;
+// Use a type alias for the listener to be explicit
+type Listener = (data: any) => void;
 
 class WebSocketService {
   private socket: WebSocket | null = null;
-  private url: string;
+  private listeners: Map<string, Listener[]> = new Map();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
-  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-  private messageHandlers: Map<string, Set<MessageHandler>> = new Map();
-  private isConnecting = false;
+  private reconnectInterval = 3000;
 
-  constructor() {
-    // Determine WebSocket URL based on current window location or environment variable
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // If VITE_API_BASE is set, extract host from it
-    const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:8080';
-    const apiHost = apiBase.replace(/^http(s)?:\/\//, '');
-    
-    this.url = `${protocol}//${apiHost}/ws`;
-  }
+  private pingInterval: any = null;
 
-  public connect() {
-    if (this.socket?.readyState === WebSocket.OPEN || this.isConnecting) {
+  connect() {
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
 
-    this.isConnecting = true;
     const token = localStorage.getItem('authToken');
+    if (!token) return;
+
+    // Determine WS URL based on environment or window location
+    let wsUrl = 'ws://localhost:8080/ws';
     
-    // Append token to URL if available for authentication
-    const wsUrl = token ? `${this.url}?token=${token}` : this.url;
+    const apiBase = import.meta.env.VITE_API_BASE;
 
-    try {
-      this.socket = new WebSocket(wsUrl);
-
-      this.socket.onopen = () => {
-        console.log('WebSocket connected');
-        this.isConnecting = false;
-        this.reconnectAttempts = 0;
-        this.startHeartbeat();
-        toast.success('已连接到服务器');
-      };
-
-      this.socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          this.handleMessage(message);
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
-        }
-      };
-
-      this.socket.onclose = (event) => {
-        this.isConnecting = false;
-        this.stopHeartbeat();
-        console.log('WebSocket disconnected:', event.code, event.reason);
-        
-        // Don't reconnect if closed cleanly (1000) or if token is invalid (4001/4003 usually)
-        if (event.code !== 1000 && event.code !== 4001) {
-          this.scheduleReconnect();
-        }
-      };
-
-      this.socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        this.isConnecting = false;
-      };
-
-    } catch (error) {
-      this.isConnecting = false;
-      console.error('Failed to connect to WebSocket:', error);
-      this.scheduleReconnect();
+    if (apiBase) {
+      // Replace http/https with ws/wss
+      wsUrl = apiBase.replace(/^http/, 'ws').replace(/\/$/, '') + '/ws';
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.hostname;
+      // If front-end dev server (vite) is running on 517x, backend likely runs on 8080.
+      // Previous logic only checked for 5173; broaden to handle any 517* dev port.
+      let port = window.location.port;
+      if (port && String(port).startsWith('517')) {
+        port = '8080';
+      }
+      const portSuffix = port ? `:${port}` : '';
+      wsUrl = `${protocol}//${host}${portSuffix}/ws`;
     }
+
+    console.debug('wsService connecting to', wsUrl);
+
+    // Append token
+    wsUrl += `?token=${token}`;
+
+    this.socket = new WebSocket(wsUrl);
+
+    this.socket.onopen = () => {
+      console.log('WebSocket connected');
+      this.reconnectAttempts = 0;
+      this.emit('connect', {});
+      this.startHeartbeat();
+    };
+
+    this.socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        // Dispatch to specific event listeners if the message has a 'type' field,
+        // otherwise (or additionally) dispatch to a generic 'message' event.
+        
+        // Strategy: 
+        // 1. If data.type exists, emit(data.type, data)
+        // 2. Always emit('message', data) for generic listeners
+        
+          if (data.type) {
+            this.emit(data.type, data);
+            // Only emit generic 'message' for actual chat messages.
+            if (data.type === 'message') {
+              this.emit('message', data);
+            }
+          } else {
+            // No explicit type: treat as generic message
+            this.emit('message', data);
+          }
+      } catch (e) {
+        console.error('WebSocket message parse error', e);
+      }
+    };
+
+    this.socket.onclose = (event) => {
+      console.log(`WebSocket disconnected. Code: ${event.code}, Reason: ${event.reason}`);
+      this.stopHeartbeat();
+      this.attemptReconnect();
+    };
+
+    this.socket.onerror = (error) => {
+      console.error('WebSocket error', error);
+    };
   }
 
-  public disconnect() {
+  disconnect() {
     if (this.socket) {
-      this.socket.close(1000, 'User disconnected');
+      this.socket.close();
       this.socket = null;
     }
     this.stopHeartbeat();
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-  }
-
-  public send(type: string, payload: any) {
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({ type, payload }));
-    } else {
-      console.warn('WebSocket is not connected. Message not sent:', type);
-      // Optionally queue messages
-    }
-  }
-
-  public subscribe(type: string, handler: MessageHandler) {
-    if (!this.messageHandlers.has(type)) {
-      this.messageHandlers.set(type, new Set());
-    }
-    this.messageHandlers.get(type)?.add(handler);
-  }
-
-  public unsubscribe(type: string, handler: MessageHandler) {
-    this.messageHandlers.get(type)?.delete(handler);
-  }
-
-  private handleMessage(message: any) {
-    const { type, payload } = message;
-    
-    // Handle specific system messages if needed
-    if (type === 'pong') {
-      // Heartbeat response
-      return;
-    }
-
-    const handlers = this.messageHandlers.get(type);
-    if (handlers) {
-      handlers.forEach(handler => handler(payload));
-    }
-  }
-
-  private scheduleReconnect() {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnect attempts reached');
-      
-      // 指数退避，但设置上限为 30s
-      const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 30000);
-      console.log(`Will retry in ${delay}ms...`);
-      
-      this.reconnectTimeout = setTimeout(() => {
-        // 不重置计数，保持较慢的重试频率
-        this.connect();
-      }, delay);
-      
-      return;
-    }
-
-    // 指数退避: 1s, 2s, 4s, 8s, 16s...
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-    console.log(`Reconnecting in ${delay}ms... (Attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
-    
-    this.reconnectTimeout = setTimeout(() => {
-      this.reconnectAttempts++;
-      this.connect();
-    }, delay);
   }
 
   private startHeartbeat() {
     this.stopHeartbeat();
-    // Send ping every 30 seconds
-    this.heartbeatInterval = setInterval(() => {
-      if (this.socket?.readyState === WebSocket.OPEN) {
+    this.pingInterval = setInterval(() => {
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send(JSON.stringify({ type: 'ping' }));
       }
-    }, 30000);
+    }, 30000); // Send ping every 30 seconds
   }
 
   private stopHeartbeat() {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
+
+  subscribe(event: string, callback: Listener) {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, []);
+    }
+    this.listeners.get(event)?.push(callback);
+  }
+
+  unsubscribe(event: string, callback: Listener) {
+    const callbacks = this.listeners.get(event);
+    if (callbacks) {
+      this.listeners.set(event, callbacks.filter(cb => cb !== callback));
+    }
+  }
+
+  private emit(event: string, data: any) {
+    const callbacks = this.listeners.get(event);
+    if (callbacks) {
+      callbacks.forEach(cb => cb(data));
+    }
+  }
+
+  private attemptReconnect() {
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      setTimeout(() => this.connect(), this.reconnectInterval);
     }
   }
 }
